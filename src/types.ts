@@ -11,11 +11,14 @@ export const PRF_SALT = new TextEncoder().encode('nostkey-v1')
 export const HKDF_INFO = 'nostkey nsec encryption v1'
 
 /**
- * Default Relying Party ID for cross-client compatibility.
- * All Nostr clients using nostkey should register passkeys against this rpId.
- * The nostkey.org domain hosts a .well-known/webauthn file listing authorized origins
- * via the Related Origin Requests spec, so any participating client can use passkeys
- * registered under this rpId.
+ * Well-known passkey gateways for cross-client compatibility.
+ * Any domain can host a .well-known/webauthn file and become a gateway.
+ * Clients can also use their own domain as a standalone rpId.
+ *
+ * The gateway model is federated: multiple independent domains can each
+ * authorize their own set of origins. Users encrypt their nsec once per
+ * gateway (or standalone rpId), producing separate kind:30079 events.
+ * Any client sharing the same rpId can decrypt the matching event.
  */
 export const DEFAULT_RP_ID = 'nostkey.org'
 export const DEFAULT_RP_NAME = 'nostkey'
@@ -68,7 +71,16 @@ export interface PrfSupportInfo {
 
 /** Passkey registration options */
 export interface RegisterOptions {
-  /** Relying Party ID. Defaults to nostkey.org for cross-client compatibility. */
+  /**
+   * Relying Party ID. This determines which clients can decrypt.
+   *
+   * - Use a gateway domain (e.g. "nostkey.org") for cross-client compatibility
+   *   with all clients authorized by that gateway.
+   * - Use your own domain for standalone mode (only your client can decrypt).
+   * - Register multiple rpIds for maximum portability.
+   *
+   * Defaults to "nostkey.org".
+   */
   rpId?: string
   /** Relying Party display name. Defaults to "nostkey". */
   rpName?: string

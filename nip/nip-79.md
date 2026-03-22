@@ -134,11 +134,9 @@ Total: 93 bytes → ~124 base64 characters
 
 ## Cross-Client Compatibility
 
-### Shared Relying Party: nostkey.org
+### Federated Gateway Model
 
-To enable the same passkey to work across multiple Nostr clients, all participating clients SHOULD use the shared Relying Party ID: `nostkey.org`.
-
-The `nostkey.org` domain hosts a `.well-known/webauthn` file listing authorized origins per the [Related Origin Requests](https://w3c.github.io/webauthn/#sctn-related-origins) specification:
+Cross-client login relies on WebAuthn's [Related Origin Requests](https://w3c.github.io/webauthn/#sctn-related-origins) spec. Any domain can act as a **passkey gateway** by hosting a `/.well-known/webauthn` file listing authorized origins:
 
 ```json
 {
@@ -150,11 +148,35 @@ The `nostkey.org` domain hosts a `.well-known/webauthn` file listing authorized 
 }
 ```
 
-A passkey registered with `rpId: "nostkey.org"` on any listed origin produces the same PRF output on every listed origin. This enables cross-client decryption without re-registration.
+A passkey registered with a gateway's rpId on any listed origin produces the same PRF output on every listed origin. This enables cross-client decryption without re-registration.
+
+The model is **federated**: there is no single canonical gateway. Multiple independent domains can each host their own `.well-known/webauthn` and authorize their own set of origins. Examples:
+
+| Gateway | Operated by | Authorized origins |
+|---------|-------------|--------------------|
+| `nostkey.org` | sovIT | primal.net, coracle.social, ... |
+| `passkey.nostr.com` | Community X | nostrudel.ninja, snort.social, ... |
+| `keys.example.org` | Self-hosted | personal-client.example.org |
+
+Users can register passkeys against **multiple gateways**, producing separate kind:30079 events for each. Any client authorized by any of those gateways can decrypt the corresponding event.
 
 ### Standalone Mode
 
-Clients MAY use their own domain as the rpId. In this case, the `rp` tag tells other clients which origin to visit for decryption. This mode is fully decentralized but limits cross-client portability.
+Clients MAY use their own domain as the rpId instead of (or in addition to) a gateway. In standalone mode:
+
+- The `rp` tag tells other clients which origin to visit for decryption.
+- Only the client's own domain can decrypt the event.
+- This requires no coordination with any gateway and is fully decentralized.
+
+### Recommended Strategy
+
+For maximum portability, clients SHOULD:
+
+1. Register against at least one gateway (e.g., `nostkey.org`) for cross-client access.
+2. Optionally register a standalone credential under the client's own rpId as a backup.
+3. Support decryption of events encrypted under any rpId the client is authorized for.
+
+Users benefit from multiple kind:30079 events with different `rp` tags. Losing access to one gateway does not affect events encrypted under other rpIds.
 
 ## Client Behavior
 
