@@ -1,6 +1,6 @@
 import { randomBytes } from '@noble/hashes/utils'
 import { base64url } from '@scure/base'
-import type { NostkeyCredential, RegisterOptions } from '../types.js'
+import type { KeytrCredential, RegisterOptions } from '../types.js'
 import { DEFAULT_RP_ID, DEFAULT_RP_NAME } from '../types.js'
 import { WebAuthnError, PrfNotSupportedError } from '../errors.js'
 import { prfRegistrationExtension, isPrfEnabled, extractPrfOutput } from './prf.js'
@@ -15,7 +15,7 @@ import { prfRegistrationExtension, isPrfEnabled, extractPrfOutput } from './prf.
  */
 export async function registerPasskey(
   options: RegisterOptions
-): Promise<{ credential: NostkeyCredential; prfOutput: Uint8Array }> {
+): Promise<{ credential: KeytrCredential; prfOutput: Uint8Array }> {
   const rpId = options.rpId ?? DEFAULT_RP_ID
   const rpName = options.rpName ?? DEFAULT_RP_NAME
   const { userName, userDisplayName } = options
@@ -76,7 +76,7 @@ export async function registerPasskey(
   const credentialId = new Uint8Array(cred.rawId)
   const transports = response.getTransports?.() as AuthenticatorTransport[] ?? []
 
-  const credential: NostkeyCredential = {
+  const credential: KeytrCredential = {
     credentialId,
     credentialIdBase64url: base64url.encode(credentialId),
     rpId,

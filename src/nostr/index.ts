@@ -9,5 +9,5 @@ export {
   nsecToNpub,
   nsecToHexPubkey,
 } from './keys.js'
-export { buildNostkeyEvent, parseNostkeyEvent } from './event.js'
-export { publishNostkeyEvent, fetchNostkeyEvents } from './relay.js'
+export { buildKeytrEvent, parseKeytrEvent } from './event.js'
+export { publishKeytrEvent, fetchKeytrEvents } from './relay.js'

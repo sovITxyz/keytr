@@ -82,7 +82,7 @@ The WebAuthn PRF extension (`prf`) is used to derive a deterministic 32-byte out
 
 **PRF Salt** (used in both registration and authentication):
 ```
-eval.first = UTF-8("nostkey-v1")
+eval.first = UTF-8("keytr-v1")
 ```
 
 The PRF salt is fixed by this specification. It MUST NOT be changed per-user or per-encryption, as the PRF output must be reproducible across devices.
@@ -95,7 +95,7 @@ The 32-byte PRF output is not used directly as an encryption key. Instead, HKDF-
 KEY = HKDF-SHA256(
   ikm    = PRF_OUTPUT,        // 32 bytes from authenticator
   salt   = random(32),        // 32 random bytes, stored in blob
-  info   = UTF-8("nostkey nsec encryption v1"),
+  info   = UTF-8("keytr nsec encryption v1"),
   length = 32                 // 256-bit AES key
 )
 ```
@@ -106,7 +106,7 @@ The random HKDF salt ensures that re-encrypting the same nsec with the same pass
 
 ```
 IV  = random(12)              // 12 bytes, stored in blob
-AAD = UTF-8("nostkey") || VERSION_BYTE || CREDENTIAL_ID_BYTES
+AAD = UTF-8("keytr") || VERSION_BYTE || CREDENTIAL_ID_BYTES
 
 CIPHERTEXT = AES-256-GCM(
   key       = KEY,
@@ -154,7 +154,7 @@ The model is **federated**: there is no single canonical gateway. Multiple indep
 
 | Gateway | Operated by | Authorized origins |
 |---------|-------------|--------------------|
-| `nostkey.org` | sovIT | primal.net, coracle.social, ... |
+| `keytr.org` | sovIT | primal.net, coracle.social, ... |
 | `passkey.nostr.com` | Community X | nostrudel.ninja, snort.social, ... |
 | `keys.example.org` | Self-hosted | personal-client.example.org |
 
@@ -172,7 +172,7 @@ Clients MAY use their own domain as the rpId instead of (or in addition to) a ga
 
 For maximum portability, clients SHOULD:
 
-1. Register against at least one gateway (e.g., `nostkey.org`) for cross-client access.
+1. Register against at least one gateway (e.g., `keytr.org`) for cross-client access.
 2. Optionally register a standalone credential under the client's own rpId as a backup.
 3. Support decryption of events encrypted under any rpId the client is authorized for.
 
@@ -183,7 +183,7 @@ Users benefit from multiple kind:30079 events with different `rp` tags. Losing a
 ### Setup Flow
 
 1. Generate or accept a 32-byte nsec
-2. Call `navigator.credentials.create()` with PRF extension and `rpId: "nostkey.org"`
+2. Call `navigator.credentials.create()` with PRF extension and `rpId: "keytr.org"`
 3. Verify PRF support via `prf.enabled === true` in extension outputs
 4. Extract the 32-byte PRF output from `prf.results.first`
 5. Generate random IV (12 bytes) and HKDF salt (32 bytes)
@@ -243,6 +243,6 @@ This protocol requires no trusted server. The relay is a dumb store. Encryption 
 | NIP | Relation |
 |-----|----------|
 | NIP-01 | Standard event structure |
-| NIP-07 | Browser extensions can integrate nostkey for key import |
-| NIP-46 | Alternative: nostkey stores keys locally, NIP-46 delegates signing |
+| NIP-07 | Browser extensions can integrate keytr for key import |
+| NIP-46 | Alternative: keytr stores keys locally, NIP-46 delegates signing |
 | NIP-49 | Password fallback uses NIP-49-compatible encryption |

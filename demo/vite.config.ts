@@ -5,7 +5,7 @@ export default defineConfig({
   root: resolve(__dirname),
   resolve: {
     alias: {
-      'nostkey': resolve(__dirname, '../src'),
+      'keytr': resolve(__dirname, '../src'),
     },
   },
 })

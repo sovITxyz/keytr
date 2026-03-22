@@ -1,4 +1,4 @@
-import { NOSTKEY_VERSION, type EncryptedNsecBlob } from '../types.js'
+import { KEYTR_VERSION, type EncryptedNsecBlob } from '../types.js'
 import { BlobParseError } from '../errors.js'
 
 /**
@@ -38,7 +38,7 @@ export function deserializeBlob(data: Uint8Array): EncryptedNsecBlob {
   }
 
   const version = data[0]
-  if (version !== NOSTKEY_VERSION) {
+  if (version !== KEYTR_VERSION) {
     throw new BlobParseError(`Unsupported blob version: ${version}`)
   }
 

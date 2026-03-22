@@ -1,10 +1,10 @@
 import { Relay } from 'nostr-tools/relay'
 import type { Event } from 'nostr-tools/core'
-import { NOSTKEY_EVENT_KIND } from '../types.js'
+import { KEYTR_EVENT_KIND } from '../types.js'
 import { RelayError } from '../errors.js'
 
-/** Publish a signed nostkey event to one or more relays */
-export async function publishNostkeyEvent(
+/** Publish a signed keytr event to one or more relays */
+export async function publishKeytrEvent(
   event: Event,
   relayUrls: string[]
 ): Promise<void> {
@@ -29,7 +29,7 @@ export async function publishNostkeyEvent(
 }
 
 /** Fetch all kind:30079 events for a given pubkey from relays */
-export async function fetchNostkeyEvents(
+export async function fetchKeytrEvents(
   pubkey: string,
   relayUrls: string[]
 ): Promise<Event[]> {
@@ -43,7 +43,7 @@ export async function fetchNostkeyEvents(
         const fetched = await new Promise<Event[]>((resolve) => {
           const collected: Event[] = []
           const sub = relay.subscribe(
-            [{ kinds: [NOSTKEY_EVENT_KIND], authors: [pubkey] }],
+            [{ kinds: [KEYTR_EVENT_KIND], authors: [pubkey] }],
             {
               onevent(evt) {
                 collected.push(evt)

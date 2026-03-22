@@ -1,14 +1,14 @@
 /** Blob version for the encrypted nsec format */
-export const NOSTKEY_VERSION = 1
+export const KEYTR_VERSION = 1
 
 /** Nostr event kind for passkey-encrypted private keys */
-export const NOSTKEY_EVENT_KIND = 30079
+export const KEYTR_EVENT_KIND = 30079
 
 /** PRF salt used during WebAuthn ceremonies */
-export const PRF_SALT = new TextEncoder().encode('nostkey-v1')
+export const PRF_SALT = new TextEncoder().encode('keytr-v1')
 
 /** HKDF info string for key derivation */
-export const HKDF_INFO = 'nostkey nsec encryption v1'
+export const HKDF_INFO = 'keytr nsec encryption v1'
 
 /**
  * Well-known passkey gateways for cross-client compatibility.
@@ -20,11 +20,11 @@ export const HKDF_INFO = 'nostkey nsec encryption v1'
  * gateway (or standalone rpId), producing separate kind:30079 events.
  * Any client sharing the same rpId can decrypt the matching event.
  */
-export const DEFAULT_RP_ID = 'nostkey.org'
-export const DEFAULT_RP_NAME = 'nostkey'
+export const DEFAULT_RP_ID = 'keytr.org'
+export const DEFAULT_RP_NAME = 'keytr'
 
 /** Result of passkey registration with PRF enabled */
-export interface NostkeyCredential {
+export interface KeytrCredential {
   credentialId: Uint8Array
   credentialIdBase64url: string
   rpId: string
@@ -41,8 +41,8 @@ export interface EncryptedNsecBlob {
 }
 
 /** A kind:30079 event payload (before signing) */
-export interface NostkeyEventTemplate {
-  kind: typeof NOSTKEY_EVENT_KIND
+export interface KeytrEventTemplate {
+  kind: typeof KEYTR_EVENT_KIND
   content: string  // base64-encoded EncryptedNsecBlob
   tags: string[][]
   created_at: number
@@ -74,15 +74,15 @@ export interface RegisterOptions {
   /**
    * Relying Party ID. This determines which clients can decrypt.
    *
-   * - Use a gateway domain (e.g. "nostkey.org") for cross-client compatibility
+   * - Use a gateway domain (e.g. "keytr.org") for cross-client compatibility
    *   with all clients authorized by that gateway.
    * - Use your own domain for standalone mode (only your client can decrypt).
    * - Register multiple rpIds for maximum portability.
    *
-   * Defaults to "nostkey.org".
+   * Defaults to "keytr.org".
    */
   rpId?: string
-  /** Relying Party display name. Defaults to "nostkey". */
+  /** Relying Party display name. Defaults to "keytr". */
   rpName?: string
   userName: string
   userDisplayName: string
@@ -96,8 +96,8 @@ export interface AuthenticateOptions {
 }
 
 /** Full encrypt-and-wrap result */
-export interface NostkeyBundle {
-  credential: NostkeyCredential
+export interface KeytrBundle {
+  credential: KeytrCredential
   encryptedBlob: string
-  eventTemplate: NostkeyEventTemplate
+  eventTemplate: KeytrEventTemplate
 }

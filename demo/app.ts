@@ -8,8 +8,8 @@ import {
   encodeNsec,
   decodeNsec,
   nsecToNpub,
-  buildNostkeyEvent,
-  parseNostkeyEvent,
+  buildKeytrEvent,
+  parseKeytrEvent,
   encryptNsecWithPassword,
   decryptNsecFromPassword,
 } from '../src/index.js'
@@ -75,7 +75,7 @@ $('btn-setup').addEventListener('click', async () => {
     const rpId = window.location.hostname
     const { credential, prfOutput } = await registerPasskey({
       rpId,
-      rpName: 'nostkey',
+      rpName: 'keytr',
       userName: npub,
       userDisplayName: 'Nostr User',
     })
@@ -91,10 +91,10 @@ $('btn-setup').addEventListener('click', async () => {
     // Zero out sensitive data
     prfOutput.fill(0)
 
-    const eventTemplate = buildNostkeyEvent({
+    const eventTemplate = buildKeytrEvent({
       credential,
       encryptedBlob,
-      clientName: 'nostkey-demo',
+      clientName: 'keytr-demo',
     })
 
     // Show results
@@ -129,7 +129,7 @@ $('btn-login').addEventListener('click', async () => {
     }
 
     const event = JSON.parse(eventJson)
-    const parsed = parseNostkeyEvent(event)
+    const parsed = parseKeytrEvent(event)
 
     log(`Decrypting with credential from ${parsed.rpId}...`)
     log('Authenticate with your passkey now...')

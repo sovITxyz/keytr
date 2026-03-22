@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { serializeBlob, deserializeBlob } from '../../src/crypto/blob.js'
-import { NOSTKEY_VERSION, type EncryptedNsecBlob } from '../../src/types.js'
+import { KEYTR_VERSION, type EncryptedNsecBlob } from '../../src/types.js'
 
 describe('blob serialization', () => {
   const validBlob: EncryptedNsecBlob = {
-    version: NOSTKEY_VERSION,
+    version: KEYTR_VERSION,
     iv: new Uint8Array(12).fill(0x11),
     hkdfSalt: new Uint8Array(32).fill(0x22),
     ciphertext: new Uint8Array(48).fill(0x33),
@@ -18,7 +18,7 @@ describe('blob serialization', () => {
   it('round-trips correctly', () => {
     const data = serializeBlob(validBlob)
     const parsed = deserializeBlob(data)
-    expect(parsed.version).toBe(NOSTKEY_VERSION)
+    expect(parsed.version).toBe(KEYTR_VERSION)
     expect(parsed.iv).toEqual(validBlob.iv)
     expect(parsed.hkdfSalt).toEqual(validBlob.hkdfSalt)
     expect(parsed.ciphertext).toEqual(validBlob.ciphertext)
@@ -26,7 +26,7 @@ describe('blob serialization', () => {
 
   it('stores version as first byte', () => {
     const data = serializeBlob(validBlob)
-    expect(data[0]).toBe(NOSTKEY_VERSION)
+    expect(data[0]).toBe(KEYTR_VERSION)
   })
 
   it('rejects wrong IV length', () => {

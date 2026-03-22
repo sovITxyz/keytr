@@ -1,7 +1,7 @@
 import { gcm } from '@noble/ciphers/aes'
 import { randomBytes } from '@noble/hashes/utils'
 import { base64 } from '@scure/base'
-import { NOSTKEY_VERSION, type EncryptOptions } from '../types.js'
+import { KEYTR_VERSION, type EncryptOptions } from '../types.js'
 import { EncryptionError } from '../errors.js'
 import { deriveKey } from './kdf.js'
 import { serializeBlob } from './blob.js'
@@ -12,10 +12,10 @@ import { serializeBlob } from './blob.js'
  * preventing substitution attacks.
  */
 function buildAad(credentialId: Uint8Array): Uint8Array {
-  const prefix = new TextEncoder().encode('nostkey')
+  const prefix = new TextEncoder().encode('keytr')
   const aad = new Uint8Array(prefix.length + 1 + credentialId.length)
   aad.set(prefix, 0)
-  aad[prefix.length] = NOSTKEY_VERSION
+  aad[prefix.length] = KEYTR_VERSION
   aad.set(credentialId, prefix.length + 1)
   return aad
 }
@@ -42,7 +42,7 @@ export function encryptNsec(options: EncryptOptions): string {
     const ciphertext = cipher.encrypt(nsecBytes)
 
     const blob = serializeBlob({
-      version: NOSTKEY_VERSION,
+      version: KEYTR_VERSION,
       iv,
       hkdfSalt,
       ciphertext,

@@ -1,15 +1,15 @@
 import { base64url } from '@scure/base'
-import { NOSTKEY_EVENT_KIND, type NostkeyEventTemplate, type NostkeyCredential } from '../types.js'
-import { NostkeyError } from '../errors.js'
+import { KEYTR_EVENT_KIND, type KeytrEventTemplate, type KeytrCredential } from '../types.js'
+import { KeytrError } from '../errors.js'
 
 interface BuildEventOptions {
-  credential: NostkeyCredential
+  credential: KeytrCredential
   encryptedBlob: string
   clientName?: string
 }
 
 /** Build an unsigned kind:30079 event template for a passkey-encrypted nsec */
-export function buildNostkeyEvent(options: BuildEventOptions): NostkeyEventTemplate {
+export function buildKeytrEvent(options: BuildEventOptions): KeytrEventTemplate {
   const { credential, encryptedBlob, clientName } = options
 
   const tags: string[][] = [
@@ -29,14 +29,14 @@ export function buildNostkeyEvent(options: BuildEventOptions): NostkeyEventTempl
   }
 
   return {
-    kind: NOSTKEY_EVENT_KIND,
+    kind: KEYTR_EVENT_KIND,
     content: encryptedBlob,
     tags,
     created_at: Math.floor(Date.now() / 1000),
   }
 }
 
-interface ParsedNostkeyEvent {
+interface ParsedKeytrEvent {
   credentialIdBase64url: string
   credentialId: Uint8Array
   rpId: string
@@ -49,13 +49,13 @@ interface ParsedNostkeyEvent {
 }
 
 /** Parse a kind:30079 event to extract credential info and encrypted blob */
-export function parseNostkeyEvent(event: {
+export function parseKeytrEvent(event: {
   kind: number
   content: string
   tags: string[][]
-}): ParsedNostkeyEvent {
-  if (event.kind !== NOSTKEY_EVENT_KIND) {
-    throw new NostkeyError(`Expected kind ${NOSTKEY_EVENT_KIND}, got ${event.kind}`)
+}): ParsedKeytrEvent {
+  if (event.kind !== KEYTR_EVENT_KIND) {
+    throw new KeytrError(`Expected kind ${KEYTR_EVENT_KIND}, got ${event.kind}`)
   }
 
   const getTag = (name: string): string | undefined =>
@@ -63,12 +63,12 @@ export function parseNostkeyEvent(event: {
 
   const credentialIdBase64url = getTag('d')
   if (!credentialIdBase64url) {
-    throw new NostkeyError('Missing "d" tag (credential ID)')
+    throw new KeytrError('Missing "d" tag (credential ID)')
   }
 
   const rpId = getTag('rp')
   if (!rpId) {
-    throw new NostkeyError('Missing "rp" tag')
+    throw new KeytrError('Missing "rp" tag')
   }
 
   const version = parseInt(getTag('v') ?? '1', 10)
@@ -84,7 +84,7 @@ export function parseNostkeyEvent(event: {
   try {
     credentialId = base64url.decode(credentialIdBase64url)
   } catch {
-    throw new NostkeyError('Invalid credential ID encoding in "d" tag')
+    throw new KeytrError('Invalid credential ID encoding in "d" tag')
   }
 
   return {

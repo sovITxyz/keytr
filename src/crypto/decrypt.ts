@@ -1,6 +1,6 @@
 import { gcm } from '@noble/ciphers/aes'
 import { base64 } from '@scure/base'
-import { NOSTKEY_VERSION, type DecryptOptions } from '../types.js'
+import { KEYTR_VERSION, type DecryptOptions } from '../types.js'
 import { DecryptionError } from '../errors.js'
 import { deriveKey } from './kdf.js'
 import { deserializeBlob } from './blob.js'
@@ -9,10 +9,10 @@ import { deserializeBlob } from './blob.js'
  * Rebuild the AAD for verification (must match what was used during encryption).
  */
 function buildAad(credentialId: Uint8Array): Uint8Array {
-  const prefix = new TextEncoder().encode('nostkey')
+  const prefix = new TextEncoder().encode('keytr')
   const aad = new Uint8Array(prefix.length + 1 + credentialId.length)
   aad.set(prefix, 0)
-  aad[prefix.length] = NOSTKEY_VERSION
+  aad[prefix.length] = KEYTR_VERSION
   aad.set(credentialId, prefix.length + 1)
   return aad
 }

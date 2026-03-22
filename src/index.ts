@@ -1,21 +1,21 @@
 // Types
 export type {
-  NostkeyCredential,
+  KeytrCredential,
   EncryptedNsecBlob,
-  NostkeyEventTemplate,
+  KeytrEventTemplate,
   EncryptOptions,
   DecryptOptions,
   PrfSupportInfo,
   RegisterOptions,
   AuthenticateOptions,
-  NostkeyBundle,
+  KeytrBundle,
 } from './types.js'
 
-export { NOSTKEY_VERSION, NOSTKEY_EVENT_KIND, DEFAULT_RP_ID, DEFAULT_RP_NAME } from './types.js'
+export { KEYTR_VERSION, KEYTR_EVENT_KIND, DEFAULT_RP_ID, DEFAULT_RP_NAME } from './types.js'
 
 // Errors
 export {
-  NostkeyError,
+  KeytrError,
   PrfNotSupportedError,
   EncryptionError,
   DecryptionError,
@@ -46,21 +46,21 @@ export {
   nsecToNpub,
   nsecToHexPubkey,
 } from './nostr/keys.js'
-export { buildNostkeyEvent, parseNostkeyEvent } from './nostr/event.js'
-export { publishNostkeyEvent, fetchNostkeyEvents } from './nostr/relay.js'
+export { buildKeytrEvent, parseKeytrEvent } from './nostr/event.js'
+export { publishKeytrEvent, fetchKeytrEvents } from './nostr/relay.js'
 
 // Password fallback
 export { encryptNsecWithPassword, decryptNsecFromPassword } from './fallback/password.js'
 
 // ---- High-level convenience functions ----
 
-import type { RegisterOptions, NostkeyBundle } from './types.js'
+import type { RegisterOptions, KeytrBundle } from './types.js'
 import { registerPasskey } from './webauthn/register.js'
 import { authenticatePasskey } from './webauthn/authenticate.js'
 import { encryptNsec as _encryptNsec } from './crypto/encrypt.js'
 import { decryptNsec as _decryptNsec } from './crypto/decrypt.js'
-import { buildNostkeyEvent as _buildEvent } from './nostr/event.js'
-import { parseNostkeyEvent as _parseEvent } from './nostr/event.js'
+import { buildKeytrEvent as _buildEvent } from './nostr/event.js'
+import { parseKeytrEvent as _parseEvent } from './nostr/event.js'
 import { generateNsec as _generateNsec, nsecToNpub as _nsecToNpub } from './nostr/keys.js'
 
 /**
@@ -68,9 +68,9 @@ import { generateNsec as _generateNsec, nsecToNpub as _nsecToNpub } from './nost
  *
  * This is the "setup" flow for a new user or adding a new passkey.
  */
-export async function setupNostkey(
+export async function setupKeytr(
   options: RegisterOptions & { clientName?: string }
-): Promise<NostkeyBundle & { nsecBytes: Uint8Array; npub: string }> {
+): Promise<KeytrBundle & { nsecBytes: Uint8Array; npub: string }> {
   const nsecBytes = _generateNsec()
   const npub = _nsecToNpub(nsecBytes)
 
@@ -100,7 +100,7 @@ export async function setupNostkey(
  *
  * This is the "login on new device" flow.
  */
-export async function loginWithNostkey(event: {
+export async function loginWithKeytr(event: {
   kind: number
   content: string
   tags: string[][]
