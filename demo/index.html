@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nostkey - Passkey-Encrypted Nostr Login</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>nostkey</h1>
+    <p class="subtitle">Encrypt your Nostr key with a passkey. Login anywhere.</p>
+
+    <div id="support-check" class="card">
+      <h2>Checking passkey support...</h2>
+    </div>
+
+    <section id="setup-section" class="card hidden">
+      <h2>Setup - Encrypt your nsec</h2>
+      <p>Generate a new Nostr identity and encrypt it with your passkey.</p>
+
+      <div class="input-group">
+        <label for="existing-nsec">Or paste an existing nsec:</label>
+        <input type="password" id="existing-nsec" placeholder="nsec1..." autocomplete="off">
+      </div>
+
+      <button id="btn-setup" class="primary">Create Passkey & Encrypt</button>
+
+      <div id="setup-result" class="result hidden">
+        <h3>Your encrypted key</h3>
+        <div class="field">
+          <label>npub</label>
+          <code id="result-npub"></code>
+        </div>
+        <div class="field">
+          <label>Encrypted blob (safe to share)</label>
+          <code id="result-blob" class="blob"></code>
+        </div>
+        <div class="field">
+          <label>Nostr event (kind:30079)</label>
+          <pre id="result-event"></pre>
+        </div>
+        <button id="btn-copy-event" class="secondary">Copy Event JSON</button>
+      </div>
+    </section>
+
+    <section id="login-section" class="card hidden">
+      <h2>Login - Decrypt your nsec</h2>
+      <p>Paste a kind:30079 event to decrypt with your passkey.</p>
+
+      <div class="input-group">
+        <label for="event-json">Event JSON:</label>
+        <textarea id="event-json" rows="6" placeholder='{"kind":30079,...}'></textarea>
+      </div>
+
+      <button id="btn-login" class="primary">Decrypt with Passkey</button>
+
+      <div id="login-result" class="result hidden">
+        <h3>Decrypted</h3>
+        <div class="field">
+          <label>npub</label>
+          <code id="login-npub"></code>
+        </div>
+        <div class="field">
+          <label>nsec (keep secret!)</label>
+          <code id="login-nsec" class="secret"></code>
+        </div>
+      </div>
+    </section>
+
+    <section id="password-section" class="card hidden">
+      <h2>Password Fallback</h2>
+      <p>Your authenticator doesn't support PRF. Use a password instead.</p>
+
+      <div class="input-group">
+        <label for="pw-nsec">nsec to encrypt:</label>
+        <input type="password" id="pw-nsec" placeholder="nsec1..." autocomplete="off">
+      </div>
+      <div class="input-group">
+        <label for="pw-password">Password:</label>
+        <input type="password" id="pw-password" placeholder="Strong password" autocomplete="off">
+      </div>
+
+      <button id="btn-pw-encrypt" class="primary">Encrypt with Password</button>
+      <button id="btn-pw-decrypt" class="secondary">Decrypt with Password</button>
+
+      <div id="pw-result" class="result hidden">
+        <code id="pw-output"></code>
+      </div>
+    </section>
+
+    <div id="log" class="log"></div>
+  </main>
+
+  <script type="module" src="app.ts"></script>
+</body>
+</html>
