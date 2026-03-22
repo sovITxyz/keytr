@@ -49,8 +49,12 @@ export {
 export { buildKeytrEvent, parseKeytrEvent } from './nostr/event.js'
 export { publishKeytrEvent, fetchKeytrEvents } from './nostr/relay.js'
 
-// Password fallback
-export { encryptNsecWithPassword, decryptNsecFromPassword } from './fallback/password.js'
+// Password fallback — DISABLED
+// Password-encrypted nsec is not safe to publish to relays. An attacker can
+// fetch the event and brute-force the password offline. This will be re-enabled
+// once a safe UX is designed (local-only storage, entropy enforcement, user warnings).
+// The code is retained in src/fallback/password.ts and tested.
+// export { encryptNsecWithPassword, decryptNsecFromPassword } from './fallback/password.js'
 
 // ---- High-level convenience functions ----
 

@@ -210,9 +210,13 @@ Users benefit from multiple kind:30079 events with different `rp` tags. Losing a
 
 Users SHOULD register multiple passkeys for redundancy. Each passkey produces a separate kind:30079 event with a different `d` tag. Any one passkey can decrypt its corresponding event.
 
-## Password Fallback
+## Password Fallback (Disabled)
 
-When the authenticator does not support the PRF extension, clients SHOULD offer password-based encryption as a fallback, using scrypt + AES-256-GCM (compatible with NIP-49).
+> **Status: Temporarily disabled.** Password-encrypted nsec blobs are NOT safe to publish to Nostr relays. Unlike passkey-based encryption — where the key is hardware-bound and requires biometric verification — password-encrypted blobs can be brute-forced offline by anyone who fetches the event from a relay. Even with scrypt N=2^20, a weak password falls in hours.
+>
+> This feature will be re-enabled once a safe UX is defined, such as: local-only storage (never published to relays), minimum password entropy enforcement, and clear user warnings about the security tradeoff.
+
+When the authenticator does not support the PRF extension, clients MAY offer password-based encryption using scrypt + AES-256-GCM (compatible with NIP-49) for **local backup only**. Password-encrypted blobs MUST NOT be published to relays.
 
 Clients MUST clearly indicate whether the key is protected by a passkey or a password.
 
@@ -245,4 +249,4 @@ This protocol requires no trusted server. The relay is a dumb store. Encryption 
 | NIP-01 | Standard event structure |
 | NIP-07 | Browser extensions can integrate keytr for key import |
 | NIP-46 | Alternative: keytr stores keys locally, NIP-46 delegates signing |
-| NIP-49 | Password fallback uses NIP-49-compatible encryption |
+| NIP-49 | Password fallback (disabled, local-only) uses NIP-49-compatible encryption |
