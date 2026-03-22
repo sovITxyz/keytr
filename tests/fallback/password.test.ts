@@ -2,36 +2,36 @@ import { describe, it, expect } from 'vitest'
 import { encryptNsecWithPassword, decryptNsecFromPassword } from '../../src/fallback/password.js'
 import { randomBytes } from '@noble/hashes/utils'
 
+const FAST_SCRYPT = { N: 1024, r: 8, p: 1 }
+
 describe('password fallback', () => {
-  // Use fast scrypt params for tests by testing the interface
-  // The actual scrypt N=2^20 is slow, so we test the contract
   it('round-trips encrypt/decrypt with password', () => {
     const nsecBytes = randomBytes(32)
     const password = 'test-password-123!'
 
-    const encrypted = encryptNsecWithPassword(nsecBytes, password)
-    const decrypted = decryptNsecFromPassword(encrypted, password)
+    const encrypted = encryptNsecWithPassword(nsecBytes, password, FAST_SCRYPT)
+    const decrypted = decryptNsecFromPassword(encrypted, password, FAST_SCRYPT)
 
     expect(decrypted).toEqual(nsecBytes)
-  }, 30000) // scrypt is intentionally slow
+  })
 
   it('fails with wrong password', () => {
     const nsecBytes = randomBytes(32)
 
-    const encrypted = encryptNsecWithPassword(nsecBytes, 'correct-password')
+    const encrypted = encryptNsecWithPassword(nsecBytes, 'correct-password', FAST_SCRYPT)
 
-    expect(() => decryptNsecFromPassword(encrypted, 'wrong-password')).toThrow()
-  }, 30000)
+    expect(() => decryptNsecFromPassword(encrypted, 'wrong-password', FAST_SCRYPT)).toThrow()
+  })
 
   it('produces different ciphertexts for same input', () => {
     const nsecBytes = randomBytes(32)
     const password = 'test'
 
-    const a = encryptNsecWithPassword(nsecBytes, password)
-    const b = encryptNsecWithPassword(nsecBytes, password)
+    const a = encryptNsecWithPassword(nsecBytes, password, FAST_SCRYPT)
+    const b = encryptNsecWithPassword(nsecBytes, password, FAST_SCRYPT)
 
     expect(a).not.toBe(b)
-  }, 30000)
+  })
 
   it('rejects empty password', () => {
     expect(() => encryptNsecWithPassword(randomBytes(32), '')).toThrow('Password must not be empty')

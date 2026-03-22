@@ -29,10 +29,13 @@ const SCRYPT_N = 1048576
 const SCRYPT_R = 8
 const SCRYPT_P = 1
 
+interface ScryptParams { N: number; r: number; p: number }
+
 /** Encrypt nsec with a password using scrypt + AES-256-GCM */
 export function encryptNsecWithPassword(
   nsecBytes: Uint8Array,
-  password: string
+  password: string,
+  scryptParams?: ScryptParams
 ): string {
   if (nsecBytes.length !== 32) {
     throw new EncryptionError(`nsec must be 32 bytes, got ${nsecBytes.length}`)
@@ -45,7 +48,8 @@ export function encryptNsecWithPassword(
   const iv = randomBytes(IV_LEN)
   const passwordBytes = new TextEncoder().encode(password)
 
-  const key = scrypt(passwordBytes, salt, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P, dkLen: 32 })
+  const { N, r, p } = scryptParams ?? { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P }
+  const key = scrypt(passwordBytes, salt, { N, r, p, dkLen: 32 })
 
   try {
     const cipher = gcm(key, iv)
@@ -66,7 +70,8 @@ export function encryptNsecWithPassword(
 /** Decrypt nsec from a password-encrypted blob */
 export function decryptNsecFromPassword(
   encryptedBlob: string,
-  password: string
+  password: string,
+  scryptParams?: ScryptParams
 ): Uint8Array {
   let data: Uint8Array
   try {
@@ -89,7 +94,8 @@ export function decryptNsecFromPassword(
   const ciphertext = data.slice(1 + SALT_LEN + IV_LEN)
 
   const passwordBytes = new TextEncoder().encode(password)
-  const key = scrypt(passwordBytes, salt, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P, dkLen: 32 })
+  const { N, r, p } = scryptParams ?? { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P }
+  const key = scrypt(passwordBytes, salt, { N, r, p, dkLen: 32 })
 
   try {
     const cipher = gcm(key, iv)
