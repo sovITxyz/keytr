@@ -25,7 +25,7 @@ export async function authenticatePasskey(
         },
       ],
       userVerification: 'required',
-      timeout: 120000,
+      timeout: options.timeout ?? 120000,
       extensions: prfAuthenticationExtension(),
     },
   }

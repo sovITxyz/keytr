@@ -42,7 +42,7 @@ export async function registerPasskey(
         requireResidentKey: true,
         userVerification: 'required',
       },
-      timeout: 120000,
+      timeout: options.timeout ?? 120000,
       extensions: prfRegistrationExtension(),
     },
   }
