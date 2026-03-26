@@ -15,7 +15,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 ## [0.1.0] - 2025-05-20
 
 ### Added
-- NIP-79 implementation: passkey-encrypted nsec keys for Nostr
+- NIP-K1 implementation: passkey-encrypted nsec keys for Nostr
 - AES-256-GCM encryption with HKDF-SHA256 key derivation from WebAuthn PRF output
 - `registerPasskey()` and `authenticatePasskey()` for WebAuthn credential management
 - `encryptNsec()` / `decryptNsec()` with AAD binding to credential ID
@@ -27,7 +27,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Federated gateway model for cross-client passkey compatibility
 - Password fallback implementation (disabled from public API — unsafe for relay publication)
 - Browser demo application
-- NIP-79 specification document
+- NIP-K1 specification document
 
 ### Security
 - PRF output and derived keys are zeroed after use

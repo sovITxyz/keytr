@@ -15,7 +15,7 @@ Cross-client login works via a [federated gateway model](docs/architecture.md#fe
 ## Documentation
 
 - [Architecture & System Design](docs/architecture.md) — detailed walkthrough of every layer: crypto, WebAuthn, Nostr integration, federated gateways, security model
-- [NIP-79 Specification](nip/nip-79.md) — the protocol spec
+- [NIP-K1 Specification](nip/nip-k1.md) — the protocol spec
 
 ## Install
 
