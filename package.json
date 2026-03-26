@@ -1,5 +1,5 @@
 {
-  "name": "keytr",
+  "name": "@sovit.xyz/keytr",
   "version": "0.1.0",
   "description": "Nostr login protocol using WebAuthn passkeys to encrypt and distribute nsec keys",
   "type": "module",
@@ -23,14 +23,27 @@
       "import": "./dist/nostr/index.js"
     }
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build",
     "dev": "vite demo",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit"
   },
   "keywords": ["nostr", "passkey", "webauthn", "fido2", "nsec", "encryption", "prf"],
+  "author": "sovITxyz",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sovITxyz/keytr.git"
+  },
+  "homepage": "https://github.com/sovITxyz/keytr",
   "license": "AGPL-3.0-or-later",
   "dependencies": {
     "@noble/ciphers": "^1.2.1",
