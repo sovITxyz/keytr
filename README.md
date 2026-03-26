@@ -1,6 +1,6 @@
 # keytr
 
-Nostr login protocol using WebAuthn passkeys to encrypt and distribute nsec keys. Implements [NIP-79](nip/nip-79.md).
+Passkey login for Nostr. Encrypt your nsec with a WebAuthn passkey, publish to relays, decrypt on any device. Implements [NIP-K1](nip/nip-k1.md).
 
 ## How it works
 
