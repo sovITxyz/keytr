@@ -47,7 +47,7 @@ export {
   nsecToHexPubkey,
 } from './nostr/keys.js'
 export { buildKeytrEvent, parseKeytrEvent } from './nostr/event.js'
-export { publishKeytrEvent, fetchKeytrEvents } from './nostr/relay.js'
+export { publishKeytrEvent, fetchKeytrEvents, type RelayOptions } from './nostr/relay.js'
 
 // Password fallback — DISABLED
 // Password-encrypted nsec is not safe to publish to relays. An attacker can

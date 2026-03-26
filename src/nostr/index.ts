@@ -10,4 +10,4 @@ export {
   nsecToHexPubkey,
 } from './keys.js'
 export { buildKeytrEvent, parseKeytrEvent } from './event.js'
-export { publishKeytrEvent, fetchKeytrEvents } from './relay.js'
+export { publishKeytrEvent, fetchKeytrEvents, type RelayOptions } from './relay.js'

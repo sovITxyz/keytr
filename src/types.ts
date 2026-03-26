@@ -86,6 +86,8 @@ export interface RegisterOptions {
   rpName?: string
   userName: string
   userDisplayName: string
+  /** WebAuthn ceremony timeout in milliseconds. Defaults to 120000 (2 minutes). */
+  timeout?: number
 }
 
 /** Passkey authentication options for decryption */
@@ -93,6 +95,8 @@ export interface AuthenticateOptions {
   credentialId: Uint8Array
   rpId: string
   transports?: AuthenticatorTransport[]
+  /** WebAuthn ceremony timeout in milliseconds. Defaults to 120000 (2 minutes). */
+  timeout?: number
 }
 
 /** Full encrypt-and-wrap result */
