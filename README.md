@@ -20,7 +20,7 @@ Cross-client login works via a [federated gateway model](docs/architecture.md#fe
 ## Install
 
 ```bash
-npm install keytr
+npm install @sovit.xyz/keytr
 ```
 
 ## Quick start
@@ -28,7 +28,7 @@ npm install keytr
 ### Setup (new user)
 
 ```typescript
-import { setupKeytr, publishKeytrEvent } from 'keytr'
+import { setupKeytr, publishKeytrEvent } from '@sovit.xyz/keytr'
 import { finalizeEvent } from 'nostr-tools/pure'
 
 const { credential, encryptedBlob, eventTemplate, nsecBytes, npub } = await setupKeytr({
@@ -44,7 +44,7 @@ await publishKeytrEvent(signedEvent, ['wss://relay.damus.io'])
 ### Login (key recovery)
 
 ```typescript
-import { loginWithKeytr, fetchKeytrEvents } from 'keytr'
+import { loginWithKeytr, fetchKeytrEvents } from '@sovit.xyz/keytr'
 
 const events = await fetchKeytrEvents(pubkey, ['wss://relay.damus.io'])
 const { nsecBytes, npub } = await loginWithKeytr(events[0])
