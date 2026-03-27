@@ -10,8 +10,8 @@ import {
   nsecToNpub,
   buildKeytrEvent,
   parseKeytrEvent,
-  encryptNsecWithPassword,
-  decryptNsecFromPassword,
+  addBackupGateway,
+  KEYTR_GATEWAYS,
 } from '../src/index.js'
 
 // DOM elements
@@ -21,6 +21,9 @@ const setupSection = $('setup-section')
 const loginSection = $('login-section')
 const passwordSection = $('password-section')
 const logEl = $('log')
+
+// Held in memory after setup so addBackupGateway can re-use it
+let storedNsecBytes: Uint8Array | null = null
 
 function log(msg: string, type: 'info' | 'success' | 'error' = 'info') {
   const entry = document.createElement('div')
@@ -97,6 +100,9 @@ $('btn-setup').addEventListener('click', async () => {
       clientName: 'keytr-demo',
     })
 
+    // Store for backup gateway registration
+    storedNsecBytes = new Uint8Array(nsecBytes)
+
     // Show results
     $('result-npub').textContent = npub
     $('result-blob').textContent = encryptedBlob
@@ -112,54 +118,97 @@ $('btn-setup').addEventListener('click', async () => {
       log('Event JSON copied to clipboard', 'success')
     }
 
-    // Pre-fill login section for testing
-    ;($('event-json') as HTMLTextAreaElement).value = JSON.stringify(eventTemplate, null, 2)
+    // Pre-fill login section for testing (wrap in array for multi-event login)
+    ;($('event-json') as HTMLTextAreaElement).value = JSON.stringify([eventTemplate], null, 2)
   } catch (err) {
     log(`Setup failed: ${(err as Error).message}`, 'error')
   }
 })
 
-// Login: decrypt nsec from event
+// Backup gateway: register a second passkey on nostkey.org
+$('btn-backup').addEventListener('click', async () => {
+  try {
+    if (!storedNsecBytes) {
+      log('Run setup first to generate or import a key', 'error')
+      return
+    }
+
+    const backupRpId = KEYTR_GATEWAYS[1] // nostkey.org
+    log(`Registering backup passkey on ${backupRpId}...`)
+
+    const bundle = await addBackupGateway(storedNsecBytes, {
+      rpId: backupRpId,
+      rpName: backupRpId,
+      userName: $('result-npub').textContent!,
+      userDisplayName: 'Nostr User',
+      clientName: 'keytr-demo',
+    })
+
+    $('backup-event').textContent = JSON.stringify(bundle.eventTemplate, null, 2)
+    $('backup-result').classList.remove('hidden')
+
+    // Append to login textarea so both events are available
+    const existing = JSON.parse(($('event-json') as HTMLTextAreaElement).value || '[]')
+    existing.push(bundle.eventTemplate)
+    ;($('event-json') as HTMLTextAreaElement).value = JSON.stringify(existing, null, 2)
+
+    log(`Backup passkey registered on ${backupRpId}`, 'success')
+  } catch (err) {
+    log(`Backup registration failed: ${(err as Error).message}`, 'error')
+  }
+})
+
+// Login: decrypt nsec from event(s)
 $('btn-login').addEventListener('click', async () => {
   try {
     const eventJson = ($('event-json') as HTMLTextAreaElement).value.trim()
     if (!eventJson) {
-      log('Paste an event JSON first', 'error')
+      log('Paste event JSON first', 'error')
       return
     }
 
-    const event = JSON.parse(eventJson)
-    const parsed = parseKeytrEvent(event)
+    const parsed = JSON.parse(eventJson)
+    // Accept a single event or an array of events
+    const events: { kind: number; content: string; tags: string[][] }[] =
+      Array.isArray(parsed) ? parsed : [parsed]
 
-    log(`Decrypting with credential from ${parsed.rpId}...`)
-    log('Authenticate with your passkey now...')
+    log(`Trying ${events.length} event(s)...`)
 
-    const prfOutput = await authenticatePasskey({
-      credentialId: parsed.credentialId,
-      rpId: parsed.rpId,
-      transports: parsed.transports as AuthenticatorTransport[],
-    })
+    for (const event of events) {
+      const info = parseKeytrEvent(event)
+      try {
+        log(`Trying credential from ${info.rpId}...`)
 
-    const nsecBytes = decryptNsec({
-      encryptedBlob: parsed.encryptedBlob,
-      prfOutput,
-      credentialId: parsed.credentialId,
-    })
+        const prfOutput = await authenticatePasskey({
+          credentialId: info.credentialId,
+          rpId: info.rpId,
+          transports: info.transports as AuthenticatorTransport[],
+        })
 
-    // Zero out PRF output
-    prfOutput.fill(0)
+        const nsecBytes = decryptNsec({
+          encryptedBlob: info.encryptedBlob,
+          prfOutput,
+          credentialId: info.credentialId,
+        })
 
-    const npub = nsecToNpub(nsecBytes)
-    const nsec = encodeNsec(nsecBytes)
+        prfOutput.fill(0)
 
-    // Zero out raw key
-    nsecBytes.fill(0)
+        const npub = nsecToNpub(nsecBytes)
+        const nsec = encodeNsec(nsecBytes)
+        nsecBytes.fill(0)
 
-    $('login-npub').textContent = npub
-    $('login-nsec').textContent = nsec
-    $('login-result').classList.remove('hidden')
+        $('login-npub').textContent = npub
+        $('login-nsec').textContent = nsec
+        $('login-result').classList.remove('hidden')
 
-    log('nsec decrypted successfully!', 'success')
+        log(`Decrypted via ${info.rpId}`, 'success')
+        return
+      } catch (err) {
+        log(`${info.rpId}: ${(err as Error).message}`, 'error')
+      }
+    }
+
+    log('No matching passkey found across all events', 'error')
   } catch (err) {
     log(`Login failed: ${(err as Error).message}`, 'error')
   }

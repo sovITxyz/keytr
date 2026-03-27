@@ -239,20 +239,50 @@ The caller is responsible for: signing the event with the nsec, publishing it to
 
 Source: `src/index.ts`
 
-### Login (Key Recovery on New Device)
+### Backup Gateway Registration
 
 ```typescript
-const { nsecBytes, npub } = await loginWithKeytr(event)
+const bundle = await addBackupGateway(nsecBytes, {
+  rpId: 'nostkey.org',
+  rpName: 'nostkey.org',
+  userName: npub,
+  userDisplayName: 'Nostr User',
+  clientName: 'my-app',
+})
+// bundle: { credential, encryptedBlob, eventTemplate }
 ```
 
 Internally:
 
-1. `parseKeytrEvent(event)` → extract credential ID, rpId, blob
-2. `authenticatePasskey({ credentialId, rpId, transports })` → PRF output (triggers biometric)
-3. `decryptNsec({ encryptedBlob, prfOutput, credentialId })` → 32-byte nsec
-4. Zero out PRF output (in `finally` block)
-5. `nsecToNpub(nsec)` → derive npub
-6. Return `{ nsecBytes, npub }`
+1. `registerPasskey(options)` → credential + PRF output (triggers biometric)
+2. `encryptNsec({ nsecBytes, prfOutput, credentialId })` → base64 blob
+3. Zero out PRF output (in `finally` block)
+4. `buildKeytrEvent({ credential, encryptedBlob })` → unsigned event template
+5. Return the bundle
+
+This is a separate action from setup — the user opts in when they want resilience against a gateway going down.
+
+Source: `src/index.ts`
+
+### Login (Key Recovery on New Device)
+
+```typescript
+const events = await fetchKeytrEvents(pubkey, relayUrls)
+const { nsecBytes, npub } = await loginWithKeytr(events)
+```
+
+Accepts an **array** of kind:30079 events. Tries each event in order until a matching passkey succeeds:
+
+1. For each event:
+   a. `parseKeytrEvent(event)` → extract credential ID, rpId, blob
+   b. `authenticatePasskey({ credentialId, rpId, transports })` → PRF output (triggers biometric)
+   c. If the authenticator rejects (no matching credential), skip to the next event
+   d. `decryptNsec({ encryptedBlob, prfOutput, credentialId })` → 32-byte nsec
+   e. Zero out PRF output (in `finally` block)
+   f. Return `{ nsecBytes, npub }`
+2. If no event succeeds, throw `WebAuthnError`
+
+This means login works regardless of which gateway's passkey is available on the current device.
 
 Source: `src/index.ts`
 
@@ -357,9 +387,87 @@ A client can skip gateways entirely and use its own domain as the rpId. Only tha
 
 ### Recommended Strategy
 
-1. Register against at least one gateway (e.g., `keytr.org`) for portability
-2. Optionally register a standalone credential as backup
+1. Register against the primary gateway (`keytr.org`) during setup — **one biometric prompt**
+2. Optionally register a backup gateway (`nostkey.org`) via `addBackupGateway()` — separate action, separate prompt
 3. Support decryption of events under any rpId the client is authorized for
+
+Related Origin Requests mean a single passkey on `keytr.org` already works from `nostkey.org` for day-to-day use. The backup gateway is for resilience — if `keytr.org` goes down, the browser can't fetch its `.well-known/webauthn`, so a separate credential on `nostkey.org` keeps the user's key accessible.
+
+---
+
+## Native & P2P Clients (No DNS)
+
+### The Problem
+
+The WebAuthn browser API requires HTTPS origins, DNS-resolvable rpIds, and `navigator.credentials`. Native runtimes like **Pear** (Holepunch's P2P application runtime) have none of these — apps are identified by public keys, distributed via Hypercore, and have no DNS or TLS.
+
+### The Solution: CTAP2 Direct
+
+Under the hood, browsers talk to authenticators via **CTAP2** (Client to Authenticator Protocol). The browser adds origin/DNS verification on top, but the authenticator itself doesn't enforce it. The rpId is just a string the authenticator hashes for credential scoping.
+
+A native app can bypass the browser layer entirely:
+
+```
+Browser client:  navigator.credentials.get() → PRF extension  → prfOutput
+Native app:      libfido2 CTAP2 call         → hmac-secret    → same output
+                                                                    │
+                                              decrypt kind:30079 event
+```
+
+The authenticator doesn't know or care whether `"keytr.org"` resolves in DNS. It matches the rpId hash against stored credentials and returns the same HMAC output regardless of how the request arrived.
+
+### What a Native Client Needs
+
+1. **CTAP2 bindings** — `libfido2` (Yubico's C library) via N-API addon is the most proven path. For Pear/Bare runtime, this would be a native addon.
+2. **Same rpId string** — use `"keytr.org"` (or whichever gateway) as a plain string parameter to the CTAP2 call.
+3. **`hmac-secret` extension** — the CTAP2 wire-level equivalent of WebAuthn's PRF extension. Use the same salt (`"keytr-v1"`) to get byte-identical output.
+4. **Everything else is the same** — the encrypted blob format, kind:30079 event structure, HKDF derivation, and AES-GCM decryption are all platform-agnostic. Only the authenticator communication layer differs.
+
+### nostr-swarm Integration
+
+[nostr-swarm](https://github.com/sovITxyz/nostr-swarm) is a fully P2P Nostr relay built on the Holepunch stack (Hyperswarm + Autobase + Hyperbee). It provides two access modes:
+
+- **WebSocket**: Traditional Nostr clients connect via NIP-01 WebSocket
+- **Hyperswarm direct**: Pear apps join the swarm topic and replicate the Autobase directly — no HTTP, no DNS, no WebSocket overhead
+
+For keytr, this means a Pear app can:
+
+1. **Fetch kind:30079 events** directly from the Hyperswarm-replicated event store — no relay URLs, no DNS lookups
+2. **Authenticate via CTAP2** using `libfido2` with `rpId: "keytr.org"` + `hmac-secret` salt `"keytr-v1"`
+3. **Decrypt the nsec** using the same blob format and crypto as browser clients
+4. **Publish new events** (backup passkey registrations, re-encryptions) back to the swarm
+
+The entire flow is DNS-free and server-free. Peers discover each other via DHT (`sha256("nostr-swarm:" + topic)`), and the Autobase ensures all peers converge on the same event set.
+
+```
+Pear app
+  │
+  ├── nostr-swarm (Hyperswarm) ── fetch/publish kind:30079 events
+  │
+  └── libfido2 (CTAP2) ── hmac-secret with rpId:"keytr.org"
+        │
+        └── decrypt nsec ── same blob format as browser clients
+```
+
+### Browser vs Native Comparison
+
+| Concern | Browser (WebAuthn) | Native (CTAP2) |
+|---------|--------------------|----------------|
+| Authenticator API | `navigator.credentials` | `libfido2` / platform CTAP2 |
+| PRF mechanism | `prf` extension | `hmac-secret` extension |
+| rpId validation | Browser enforces DNS + origin | App passes string directly |
+| Related Origins | `.well-known/webauthn` fetch | Not needed (no origin check) |
+| Relay access | WebSocket to relay URLs | Hyperswarm direct or WebSocket |
+| Event format | kind:30079 | kind:30079 (identical) |
+| Crypto | Same (HKDF + AES-256-GCM) | Same |
+
+### Security Considerations for Native Clients
+
+Without the browser's origin enforcement, native clients take on responsibility for:
+
+- **rpId integrity** — the app must use the correct rpId string. A malicious app could use any rpId to trigger credential lookup, but without the correct PRF salt and credential ID, decryption will fail (AAD mismatch).
+- **User consent** — the authenticator still requires biometric/PIN for every operation. The user always approves.
+- **Code trust** — users must trust the native app's code (same as any native key management tool). Pear apps are content-addressed by public key, providing a verifiable identity.
 
 ---
 
@@ -408,6 +516,7 @@ PRF_SALT         = UTF-8("keytr-v1")
 HKDF_INFO        = "keytr nsec encryption v1"
 DEFAULT_RP_ID    = "keytr.org"
 DEFAULT_RP_NAME  = "keytr"
+KEYTR_GATEWAYS   = ["keytr.org", "nostkey.org"]
 ```
 
 Source: `src/types.ts`
@@ -467,8 +576,9 @@ RegisterOptions, AuthenticateOptions, KeytrBundle
 ### High-Level
 
 ```typescript
-setupKeytr(options)      // Full registration flow
-loginWithKeytr(event)    // Full login/recovery flow
+setupKeytr(options)              // Full registration flow (1 passkey prompt)
+addBackupGateway(nsec, options)  // Register backup on another gateway
+loginWithKeytr(events)           // Try each event until a passkey matches
 ```
 
 ### Crypto
