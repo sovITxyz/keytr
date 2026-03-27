@@ -23,6 +23,13 @@ export const HKDF_INFO = 'keytr nsec encryption v1'
 export const DEFAULT_RP_ID = 'keytr.org'
 export const DEFAULT_RP_NAME = 'keytr'
 
+/**
+ * Well-known passkey gateways.
+ * The primary gateway is used during initial setup (1 biometric prompt).
+ * Additional gateways can be registered later via addBackupGateway().
+ */
+export const KEYTR_GATEWAYS = ['keytr.org', 'nostkey.org'] as const
+
 /** Result of passkey registration with PRF enabled */
 export interface KeytrCredential {
   credentialId: Uint8Array

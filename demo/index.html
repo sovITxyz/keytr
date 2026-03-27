@@ -41,6 +41,16 @@
           <pre id="result-event"></pre>
         </div>
         <button id="btn-copy-event" class="secondary">Copy Event JSON</button>
+        <hr>
+        <h3>Backup gateway (optional)</h3>
+        <p>Register a second passkey on <code>nostkey.org</code> so your key stays accessible even if the primary gateway goes down.</p>
+        <button id="btn-backup" class="secondary">Add Backup Gateway</button>
+        <div id="backup-result" class="hidden">
+          <div class="field">
+            <label>Backup event (kind:30079)</label>
+            <pre id="backup-event"></pre>
+          </div>
+        </div>
       </div>
     </section>
 

@@ -11,7 +11,7 @@ export type {
   KeytrBundle,
 } from './types.js'
 
-export { KEYTR_VERSION, KEYTR_EVENT_KIND, DEFAULT_RP_ID, DEFAULT_RP_NAME } from './types.js'
+export { KEYTR_VERSION, KEYTR_EVENT_KIND, DEFAULT_RP_ID, DEFAULT_RP_NAME, KEYTR_GATEWAYS } from './types.js'
 
 // Errors
 export {
@@ -59,6 +59,7 @@ export { publishKeytrEvent, fetchKeytrEvents, type RelayOptions } from './nostr/
 // ---- High-level convenience functions ----
 
 import type { RegisterOptions, KeytrBundle } from './types.js'
+import { WebAuthnError } from './errors.js'
 import { registerPasskey } from './webauthn/register.js'
 import { authenticatePasskey } from './webauthn/authenticate.js'
 import { encryptNsec as _encryptNsec } from './crypto/encrypt.js'
@@ -100,33 +101,84 @@ export async function setupKeytr(
 }
 
 /**
- * Full login flow: authenticate with passkey, decrypt nsec from event.
+ * Register a backup passkey on an additional gateway for an existing nsec.
  *
- * This is the "login on new device" flow.
+ * Call this separately from setupKeytr() — each call triggers one biometric
+ * prompt. The user decides when (or if) to add backup gateways.
  */
-export async function loginWithKeytr(event: {
-  kind: number
-  content: string
-  tags: string[][]
-}): Promise<{ nsecBytes: Uint8Array; npub: string }> {
-  const parsed = _parseEvent(event)
-
-  const prfOutput = await authenticatePasskey({
-    credentialId: parsed.credentialId,
-    rpId: parsed.rpId,
-    transports: parsed.transports as AuthenticatorTransport[],
-  })
+export async function addBackupGateway(
+  nsecBytes: Uint8Array,
+  options: RegisterOptions & { clientName?: string }
+): Promise<KeytrBundle> {
+  const { credential, prfOutput } = await registerPasskey(options)
 
   try {
-    const nsecBytes = _decryptNsec({
-      encryptedBlob: parsed.encryptedBlob,
+    const encryptedBlob = _encryptNsec({
+      nsecBytes,
       prfOutput,
-      credentialId: parsed.credentialId,
+      credentialId: credential.credentialId,
     })
 
-    const npub = _nsecToNpub(nsecBytes)
-    return { nsecBytes, npub }
+    const eventTemplate = _buildEvent({
+      credential,
+      encryptedBlob,
+      clientName: options.clientName,
+    })
+
+    return { credential, encryptedBlob, eventTemplate }
   } finally {
     prfOutput.fill(0)
   }
+}
+
+/**
+ * Full login flow: try each event's passkey until one succeeds.
+ *
+ * Pass all kind:30079 events for this pubkey. The function tries each
+ * event in order — the first passkey the authenticator recognises wins.
+ * This works regardless of which gateway the passkey was registered with.
+ */
+export async function loginWithKeytr(events: {
+  kind: number
+  content: string
+  tags: string[][]
+}[]): Promise<{ nsecBytes: Uint8Array; npub: string }> {
+  if (events.length === 0) {
+    throw new WebAuthnError('No keytr events provided')
+  }
+
+  let lastError: Error | undefined
+
+  for (const event of events) {
+    const parsed = _parseEvent(event)
+
+    let prfOutput: Uint8Array
+    try {
+      prfOutput = await authenticatePasskey({
+        credentialId: parsed.credentialId,
+        rpId: parsed.rpId,
+        transports: parsed.transports as AuthenticatorTransport[],
+      })
+    } catch (err) {
+      lastError = err as Error
+      continue
+    }
+
+    try {
+      const nsecBytes = _decryptNsec({
+        encryptedBlob: parsed.encryptedBlob,
+        prfOutput,
+        credentialId: parsed.credentialId,
+      })
+
+      const npub = _nsecToNpub(nsecBytes)
+      return { nsecBytes, npub }
+    } finally {
+      prfOutput.fill(0)
+    }
+  }
+
+  throw new WebAuthnError(
+    `No matching passkey found across ${events.length} event(s): ${lastError?.message ?? 'unknown error'}`
+  )
 }
