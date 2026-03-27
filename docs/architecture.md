@@ -296,6 +296,61 @@ There is no single gateway. Anyone can run one:
 
 Users can register passkeys against **multiple gateways**, producing separate kind:30079 events for each. Losing access to one gateway doesn't affect events encrypted under other rpIds.
 
+### Cross-Gateway Trust
+
+The two official gateways — `keytr.org` (Cloudflare Pages) and `nostkey.org` (GitHub Pages) — trust each other via bidirectional Related Origin Requests. Each gateway's `/.well-known/webauthn` lists the other as an authorized origin:
+
+```json
+// https://keytr.org/.well-known/webauthn
+{
+  "origins": [
+    "https://keytr.org",
+    "https://nostkey.org",
+    "https://bies.sovit.xyz",
+    "https://gitvid.sovit.xyz",
+    "https://nostrbook.net"
+  ]
+}
+```
+
+```json
+// https://nostkey.org/.well-known/webauthn
+{
+  "origins": [
+    "https://nostkey.org",
+    "https://keytr.org",
+    "https://bies.sovit.xyz",
+    "https://gitvid.sovit.xyz",
+    "https://nostrbook.net"
+  ]
+}
+```
+
+This means:
+
+- A passkey registered with `rpId: "keytr.org"` can be used from `nostkey.org` (and vice versa)
+- A passkey registered with either rpId can be used from any authorized client origin (bies, gitvid, nostrbook)
+- The browser fetches the `.well-known/webauthn` file from the rpId domain and verifies the requesting origin is listed before allowing the WebAuthn ceremony
+
+In practice, a user on `nostkey.org` authenticating with a passkey bound to `keytr.org` works like this:
+
+1. Client calls `navigator.credentials.get({ publicKey: { rpId: "keytr.org" } })` from `nostkey.org`
+2. Browser fetches `https://keytr.org/.well-known/webauthn`
+3. Browser confirms `https://nostkey.org` is in the origins list
+4. Authenticator runs the ceremony using `keytr.org` as the rpId — returns the same credential and user handle as if the user were on `keytr.org` directly
+
+**Browser support**: Chrome 128+ (desktop and Android), Safari 18+ (iOS 18+, macOS Sequoia+).
+
+### Adding a New Client Origin
+
+To authorize a new Nostr client to use a gateway's passkeys:
+
+1. Add the client's origin to the gateway's `/.well-known/webauthn` origins array
+2. Deploy the updated file
+3. The client can now call WebAuthn with the gateway's rpId
+
+For the official gateways, submit a PR to [sovITxyz/keytr.org](https://github.com/sovITxyz/keytr.org) or [nostkey/nostkey.org](https://github.com/nostkey/nostkey.org).
+
 ### Standalone Mode
 
 A client can skip gateways entirely and use its own domain as the rpId. Only that domain can decrypt. The `rp` tag in the event tells other clients which origin to visit if they want to attempt decryption.
