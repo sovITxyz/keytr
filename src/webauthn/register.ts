@@ -3,7 +3,7 @@ import { base64url } from '@scure/base'
 import type { KeytrCredential, RegisterOptions } from '../types.js'
 import { DEFAULT_RP_ID, DEFAULT_RP_NAME } from '../types.js'
 import { WebAuthnError, PrfNotSupportedError } from '../errors.js'
-import { prfRegistrationExtension, prfAuthenticationExtension, isPrfEnabled, extractPrfOutput } from './prf.js'
+import { prfRegistrationExtension, prfAuthenticationExtension, extractPrfOutput } from './prf.js'
 
 /**
  * Register a new passkey with PRF extension enabled.
@@ -59,14 +59,6 @@ export async function registerPasskey(
 
   const response = cred.response as AuthenticatorAttestationResponse
   const extensionResults = cred.getClientExtensionResults()
-  const prfSupported = isPrfEnabled(extensionResults)
-
-  if (!prfSupported) {
-    throw new PrfNotSupportedError(
-      'This authenticator does not support the PRF extension. ' +
-      'Try using a platform authenticator (fingerprint/face) or a newer security key.'
-    )
-  }
 
   let prfOutput = extractPrfOutput(extensionResults)
 

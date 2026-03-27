@@ -1,0 +1,1 @@
+{"version":3,"file":"authenticate.d.ts","sourceRoot":"","sources":["../../src/webauthn/authenticate.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,mBAAmB,EAAE,MAAM,aAAa,CAAA;AAItD;;;;;GAKG;AACH,wBAAsB,mBAAmB,CACvC,OAAO,EAAE,mBAAmB,GAC3B,OAAO,CAAC,UAAU,CAAC,CAyCrB"}
