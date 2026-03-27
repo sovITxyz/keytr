@@ -3,7 +3,7 @@ import { base64url } from '@scure/base'
 import type { KeytrCredential, RegisterOptions } from '../types.js'
 import { DEFAULT_RP_ID, DEFAULT_RP_NAME } from '../types.js'
 import { WebAuthnError, PrfNotSupportedError } from '../errors.js'
-import { prfRegistrationExtension, isPrfEnabled, extractPrfOutput } from './prf.js'
+import { prfRegistrationExtension, prfAuthenticationExtension, isPrfEnabled, extractPrfOutput } from './prf.js'
 
 /**
  * Register a new passkey with PRF extension enabled.
@@ -68,9 +68,45 @@ export async function registerPasskey(
     )
   }
 
-  const prfOutput = extractPrfOutput(extensionResults)
+  let prfOutput = extractPrfOutput(extensionResults)
+
+  // Some authenticators (e.g. YubiKey) report prf.enabled=true during
+  // registration but only return PRF output during authentication.
+  // Fall back to an immediate assertion to obtain the PRF output.
   if (!prfOutput || prfOutput.length !== 32) {
-    throw new PrfNotSupportedError('PRF output was not returned during registration')
+    const credId = new Uint8Array(cred.rawId)
+    const getOptions: CredentialRequestOptions = {
+      publicKey: {
+        rpId,
+        challenge: randomBytes(32).buffer.slice(0) as ArrayBuffer,
+        allowCredentials: [
+          {
+            type: 'public-key',
+            id: credId.buffer.slice(0) as ArrayBuffer,
+            transports: response.getTransports?.() as AuthenticatorTransport[] ?? [],
+          },
+        ],
+        userVerification: 'required',
+        timeout: options.timeout ?? 120000,
+        extensions: prfAuthenticationExtension(),
+      },
+    }
+
+    let assertion: PublicKeyCredential
+    try {
+      const result = await navigator.credentials.get(getOptions)
+      if (!result) throw new WebAuthnError('Follow-up authentication returned null')
+      assertion = result as PublicKeyCredential
+    } catch (err) {
+      if (err instanceof WebAuthnError) throw err
+      throw new WebAuthnError(`Follow-up PRF authentication failed: ${(err as Error).message}`)
+    }
+
+    const assertionExtensions = assertion.getClientExtensionResults()
+    prfOutput = extractPrfOutput(assertionExtensions)
+    if (!prfOutput || prfOutput.length !== 32) {
+      throw new PrfNotSupportedError('PRF output not available from this authenticator')
+    }
   }
 
   const credentialId = new Uint8Array(cred.rawId)
