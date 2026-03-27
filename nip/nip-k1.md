@@ -261,13 +261,30 @@ A passkey registered with a gateway's rpId on **any** listed origin works on **e
 
 The model is **federated**: there is no single canonical gateway. Multiple independent domains can each host their own `.well-known/webauthn` and authorize their own set of Nostr clients:
 
-| Gateway | Operator | Authorized Origins |
-|---------|----------|--------------------|
-| `keytr.org` | keytr | primal.net, coracle.social, ... |
-| `passkey.nostr.com` | Community X | nostrudel.ninja, snort.social, ... |
-| `keys.example.org` | Self-hosted | personal-client.example.org |
+| Gateway | Operator | Hosting | Authorized Origins |
+|---------|----------|---------|-------------------|
+| `keytr.org` | sovIT | Cloudflare Pages | nostkey.org, bies.sovit.xyz, gitvid.sovit.xyz, nostrbook.net |
+| `nostkey.org` | sovIT | GitHub Pages | keytr.org, bies.sovit.xyz, gitvid.sovit.xyz, nostrbook.net |
+| `keys.example.org` | Self-hosted | Any | personal-client.example.org |
 
 Users can register passkeys against **multiple gateways**, producing separate kind:30079 events for each. Losing access to one gateway does not affect events encrypted under other rpIds.
+
+### Cross-Gateway Trust
+
+Gateways MAY list each other as authorized origins, enabling passkeys registered under one gateway's rpId to be used from another gateway's domain. For example, if `keytr.org/.well-known/webauthn` includes `https://nostkey.org`, a user on `nostkey.org` can authenticate with a passkey bound to `rpId: "keytr.org"`.
+
+The authentication flow for cross-gateway usage:
+
+1. Client on origin B calls `navigator.credentials.get()` with `rpId` set to gateway A's domain
+2. Browser fetches `https://gateway-a/.well-known/webauthn`
+3. Browser verifies origin B is listed in the `origins` array
+4. Authenticator runs the ceremony using gateway A's rpId — returns the same credential and user handle
+
+This requires browser support for [Related Origin Requests](https://w3c.github.io/webauthn/#sctn-related-origins) (Chrome 128+, Safari 18+).
+
+### Adding Client Origins to a Gateway
+
+To authorize a new origin for an existing gateway, add the client's full origin (e.g., `https://client.example.com`) to the gateway's `/.well-known/webauthn` origins array. No changes are needed on the client side — the browser handles validation automatically.
 
 ### Standalone Mode
 

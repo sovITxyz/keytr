@@ -10,7 +10,7 @@ Register a passkey, encrypt your nsec with the passkey's PRF output, publish the
 Passkey PRF → HKDF-SHA256 → AES-256-GCM → kind:30079 event → relay
 ```
 
-Cross-client login works via a [federated gateway model](docs/architecture.md#federated-gateway-model) — any domain can authorize a set of Nostr clients to share passkey access using WebAuthn Related Origin Requests.
+Cross-client login works via a [federated gateway model](docs/architecture.md#federated-gateway-model) — any domain can authorize a set of Nostr clients to share passkey access using WebAuthn [Related Origin Requests](https://w3c.github.io/webauthn/#sctn-related-origins). The two official gateways (`keytr.org` on Cloudflare, `nostkey.org` on GitHub Pages) trust each other bidirectionally, so a passkey registered under either rpId works on both sites and all authorized client origins.
 
 ## Documentation
 
