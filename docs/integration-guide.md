@@ -29,7 +29,7 @@ Every tier ends with a single biometric prompt. The difference is **how the clie
 
 ### Why three tiers?
 
-Discoverable login (`discoverAndLogin`) works from zero state, but it's the slowest path — it must recover the pubkey from the WebAuthn `userHandle`, then fetch events. If the client already knows the pubkey (from its own user store or a credential index), it can skip discovery and go straight to a targeted relay query.
+Discoverable login (`discoverAndLogin`) works from zero state, but it's the slowest path — it uses a two-step WebAuthn flow (discovery without PRF, then targeted assertion with PRF to work around Safari iOS 18+), then fetches events by the recovered pubkey. If the client already knows the pubkey (from its own user store or a credential index), it can skip discovery and go straight to a targeted relay query with a single assertion.
 
 The three-tier pattern means:
 - **First login** on a new device hits tier 3 (discoverable). Slow but works.

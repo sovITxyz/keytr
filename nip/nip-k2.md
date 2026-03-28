@@ -66,10 +66,13 @@ NIP-K1 and NIP-K2 are complementary. K1 serves users with existing identities wh
 ┌─────────────────────────────────────────────────────────────┐
 │                    PASSSEED LOGIN                            │
 │                                                             │
-│  Authenticate passkey (allowCredentials: [])                │
+│  Step 1: Discovery (no PRF, allowCredentials: [])           │
 │  Browser shows passkey picker, user taps one                │
 │       │                                                     │
 │       ├── userHandle ──► K2 marker (not pubkey)             │
+│       └── rawId      ──► credential ID                      │
+│                                                             │
+│  Step 2: Targeted assertion (allowCredentials: [credId])    │
 │       └── PRF output  ──► 32 bytes                          │
 │                                                             │
 │  HKDF-SHA256(PRF output, fixed salt, info) ──► nsec         │
@@ -239,20 +242,26 @@ nsec = HKDF-SHA256(prfOutput, PASSSEED_HKDF_SALT, PASSSEED_HKDF_INFO, 32)
 
 ### Dual-Protocol Discoverable Login
 
-When a client supports both NIP-K1 and NIP-K2, discoverable authentication proceeds as:
+When a client supports both NIP-K1 and NIP-K2, discoverable authentication uses the same two-step flow as NIP-K1 (required for Safari iOS 18+ compatibility):
 
 ```
-navigator.credentials.get({ allowCredentials: [] })
+Step 1: navigator.credentials.get({ allowCredentials: [] })  // no PRF
        │
        ▼
   Check userHandle
        │
-       ├── matches PASSSEED_USER_ID ────► K2 flow (derive nsec from PRF)
+       ├── matches PASSSEED_USER_ID ────► K2 path
        │
-       └── 32 bytes, not marker ────────► K1 flow (pubkey → fetch relay → decrypt)
+       └── 32 bytes, not marker ────────► K1 path
+       │
+Step 2: navigator.credentials.get({ allowCredentials: [credId], prf: ... })
+       │
+       ├── K2: derive nsec from PRF output
+       │
+       └── K1: pubkey → fetch relay → decrypt with PRF output
 ```
 
-Clients SHOULD support both flows transparently. The user selects a passkey from the browser picker; the client automatically routes to the correct protocol.
+Clients SHOULD support both flows transparently. The user selects a passkey from the browser picker; the client routes to the correct protocol based on `userHandle`, then obtains PRF output via a targeted follow-up assertion.
 
 ### Marker Event Format
 
