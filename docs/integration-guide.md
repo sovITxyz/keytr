@@ -113,7 +113,7 @@ keytr's `discoverAndLogin()` and `discoverPasskey()` handle this conversion inte
 
 ### How apps should use it
 
-The pubkey recovered from `userHandle` is used for two things:
+The pubkey recovered from `userHandle` is used for three things:
 
 1. **Relay lookup**: `fetchKeytrEvents(pubkey, relays)` queries for kind:30079 events authored by this pubkey. This is how discoverable login finds the encrypted blob without any prior state.
 
@@ -195,10 +195,10 @@ async function loginWithPasskey() {
     if (cachedUser?.pubkey) {
       const events = await fetchKeytrEvents(cachedUser.pubkey, RELAYS)
       if (events.length > 0) {
-        const { nsecBytes, pubkey } = await loginWithKeytr(events)
+        const { nsecBytes } = await loginWithKeytr(events)
         try {
           // Auto-upgrade: index the credential for tier 1 next time
-          if (pubkey && !hasCredential(pubkey)) addToIndex(pubkey)
+          if (!hasCredential(cachedUser.pubkey)) addToIndex(cachedUser.pubkey)
           return encodeNsec(nsecBytes)
         } finally {
           nsecBytes.fill(0)
