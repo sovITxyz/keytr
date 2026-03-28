@@ -136,18 +136,30 @@ Source: `src/webauthn/authenticate.ts`
 
 ### Authentication (Discoverable)
 
-`discoverPasskey(options?)` does:
+`discoverPasskey(options?)` uses a **two-step flow** to work around Safari iOS 18+ not returning PRF extension output during discoverable authentication (empty `allowCredentials`):
+
+**Step 1 — Discovery (no PRF):**
 
 1. Build `CredentialRequestOptions`:
    - `rpId`: defaults to `"keytr.org"`
    - Random challenge
    - `allowCredentials: []` — empty, so the browser shows all resident keys for this rpId
-   - `extensions`: PRF with salt `"keytr-v1"`
+   - No PRF extension
 2. Call `navigator.credentials.get()` — browser shows passkey picker, user selects one
 3. Extract pubkey from `response.userHandle` (the 32-byte public key set during registration)
-4. Extract 32-byte PRF output
-5. Extract credential ID from `rawId`
-6. Return `{ pubkey, prfOutput, credentialId }`
+4. Extract credential ID from `rawId`
+
+**Step 2 — Targeted assertion with PRF:**
+
+5. Build a second `CredentialRequestOptions`:
+   - Same `rpId`
+   - The discovered credential ID in `allowCredentials`
+   - `extensions`: PRF with salt `"keytr-v1"`
+6. Call `navigator.credentials.get()` — browser auto-approves since it targets the same credential
+7. Extract 32-byte PRF output
+8. Return `{ pubkey, prfOutput, credentialId }`
+
+This pattern matches the existing YubiKey fallback in `registerPasskey()`. The second assertion is typically auto-approved by the browser without an additional biometric prompt.
 
 Source: `src/webauthn/authenticate.ts`
 
@@ -294,7 +306,7 @@ const { nsecBytes, npub, pubkey } = await discoverAndLogin(
 
 One call, no npub input needed:
 
-1. `discoverPasskey({ rpId })` → browser shows passkey picker → returns pubkey, PRF output, credential ID
+1. `discoverPasskey({ rpId })` → browser shows passkey picker → targeted PRF assertion → returns pubkey, PRF output, credential ID
 2. `fetchKeytrEvents(pubkey, relays)` → fetch kind:30079 events for the recovered pubkey
 3. Match the event whose `d` tag equals `base64url(credentialId)`
 4. `decryptNsec({ encryptedBlob, prfOutput, credentialId })` → 32-byte nsec
@@ -822,7 +834,7 @@ deserializeBlob(bytes)   // Unpack from binary
 checkPrfSupport()                  // Detect PRF capability
 registerPasskey(options)           // Create passkey + get PRF (pubkey stored as user.id)
 authenticatePasskey(options)       // Assert known passkey + get PRF
-discoverPasskey(options?)          // Discoverable auth — returns pubkey + PRF + credentialId
+discoverPasskey(options?)          // Discoverable auth (two-step) — returns pubkey + PRF + credentialId
 ```
 
 ### Nostr

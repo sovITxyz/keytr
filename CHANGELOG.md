@@ -10,6 +10,11 @@ This project follows [Semantic Versioning](https://semver.org/).
 - **Parallel relay operations** — `publishKeytrEvent` and `fetchKeytrEvents` now query all relays concurrently via `Promise.allSettled()` instead of sequentially, reducing worst-case latency from `N × timeout` to `1 × timeout`
 - **Upgraded to noble/scure v2** — `@noble/ciphers` ^2.1.0, `@noble/hashes` ^2.0.0, `@scure/base` ^2.0.0
 
+## [0.3.1] - 2026-03-28
+
+### Fixed
+- **Safari iOS 18+ discoverable login** — `discoverPasskey()` now uses a two-step flow: discovery without PRF, then a targeted assertion with PRF. Safari does not return PRF extension output during discoverable authentication (empty `allowCredentials`). The second assertion targets the discovered credential ID, which the browser auto-approves without an additional biometric prompt.
+
 ## [0.2.0] - 2026-03-27
 
 ### Added

@@ -50,10 +50,13 @@ This NIP uses the WebAuthn **PRF extension** to derive a deterministic encryptio
 ┌─────────────────────────────────────────────────────────────┐
 │                   DISCOVERABLE LOGIN                        │
 │                                                             │
-│  Authenticate passkey (allowCredentials: [])                │
+│  Step 1: Discovery (no PRF, allowCredentials: [])           │
 │  Browser shows passkey picker, user taps one                │
 │       │                                                     │
 │       ├── userHandle ──► pubkey (32 bytes)                   │
+│       └── rawId      ──► credential ID                      │
+│                                                             │
+│  Step 2: Targeted assertion (allowCredentials: [credId])    │
 │       └── PRF output  ──► 32 bytes                          │
 │                                                             │
 │  Fetch kind:30079 events for pubkey from relays             │
@@ -162,7 +165,9 @@ Clients SHOULD support both ES256 (alg: -7) and RS256 (alg: -257) to maximize au
 
 ### Authentication (Discoverable Login)
 
-This is the primary login flow. No prior knowledge of the user's pubkey or credential ID is needed.
+This is the primary login flow. No prior knowledge of the user's pubkey or credential ID is needed. Implementations MUST use a **two-step flow** because Safari iOS 18+ does not return PRF extension output during discoverable authentication (empty `allowCredentials`).
+
+**Step 1 — Discovery (no PRF):**
 
 1. Call `navigator.credentials.get()`:
 
@@ -171,6 +176,26 @@ This is the primary login flow. No prior knowledge of the user's pubkey or crede
   challenge: randomBytes(32),
   rpId: rpId,                             // e.g., "keytr.org"
   allowCredentials: [],                   // empty = browser shows passkey picker
+  userVerification: "required"
+  // No PRF extension — Safari iOS 18+ ignores it with empty allowCredentials
+}
+```
+
+2. Extract `userHandle` from the `AuthenticatorAssertionResponse` — this is the 32-byte Nostr public key set during registration.
+3. Extract the credential ID from `rawId`.
+
+**Step 2 — Targeted assertion with PRF:**
+
+4. Call `navigator.credentials.get()` again with the discovered credential:
+
+```javascript
+{
+  challenge: randomBytes(32),
+  rpId: rpId,
+  allowCredentials: [{
+    type: "public-key",
+    id: credentialId                      // from step 1
+  }],
   userVerification: "required",
   extensions: {
     prf: {
@@ -180,16 +205,14 @@ This is the primary login flow. No prior knowledge of the user's pubkey or crede
 }
 ```
 
-2. Extract `userHandle` from the `AuthenticatorAssertionResponse` — this is the 32-byte Nostr public key set during registration.
-3. Extract the 32-byte PRF output from `prf.results.first` in the extension results.
-4. Extract the credential ID from `rawId`.
-5. Fetch kind:30079 events for the recovered public key from Nostr relays.
-6. Select the event whose `d` tag matches the base64url-encoded credential ID from the authenticator response.
-7. Parse the event and extract the encrypted blob from the `content` field.
-8. Decrypt the nsec using the PRF output (see [Decryption](#decryption)).
-9. Zero the PRF output and derived key from memory.
+5. Extract the 32-byte PRF output from `prf.results.first` in the extension results.
+6. Fetch kind:30079 events for the recovered public key from Nostr relays.
+7. Select the event whose `d` tag matches the base64url-encoded credential ID from the authenticator response.
+8. Parse the event and extract the encrypted blob from the `content` field.
+9. Decrypt the nsec using the PRF output (see [Decryption](#decryption)).
+10. Zero the PRF output and derived key from memory.
 
-Using `allowCredentials: []` (empty array) triggers the platform's passkey picker, allowing the user to select which identity to authenticate with.
+Step 1 uses `allowCredentials: []` to trigger the platform's passkey picker. Step 2 targets the specific credential for PRF evaluation. The browser typically auto-approves step 2 without an additional biometric prompt since it targets the same credential that was just authenticated. If step 2 fails to return PRF output, the authenticator does not support PRF.
 
 ### Authentication (Known Credential)
 
