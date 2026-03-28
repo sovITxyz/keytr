@@ -50,7 +50,7 @@ describe('nostr event', () => {
       kind: 1,
       content: '',
       tags: [],
-    })).toThrow('Expected kind 30079')
+    })).toThrow('Expected kind 31777')
   })
 
   it('rejects missing d tag', () => {

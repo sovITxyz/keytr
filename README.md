@@ -7,7 +7,7 @@ Passkey login for Nostr. Encrypt your nsec with a WebAuthn passkey, publish to r
 Register a passkey, encrypt your nsec with the passkey's PRF output, publish the ciphertext to Nostr relays. On any device with the synced passkey, tap to decrypt — no npub input needed, no localStorage, no manual key copying.
 
 ```
-Passkey PRF → HKDF-SHA256 → AES-256-GCM → kind:30079 event → relay
+Passkey PRF → HKDF-SHA256 → AES-256-GCM → kind:31777 event → relay
 ```
 
 Cross-client login works via a [federated gateway model](docs/architecture.md#federated-gateway-model) — any domain can authorize a set of Nostr clients to share passkey access using WebAuthn [Related Origin Requests](https://w3c.github.io/webauthn/#sctn-related-origins). The two official gateways (`keytr.org` on Cloudflare, `nostkey.org` on Hostinger) trust each other bidirectionally, so a passkey registered under either rpId works on both sites and all authorized client origins.

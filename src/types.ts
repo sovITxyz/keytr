@@ -2,7 +2,7 @@
 export const KEYTR_VERSION = 1
 
 /** Nostr event kind for passkey-encrypted private keys */
-export const KEYTR_EVENT_KIND = 30079
+export const KEYTR_EVENT_KIND = 31777
 
 /** PRF salt used during WebAuthn ceremonies */
 export const PRF_SALT = new TextEncoder().encode('keytr-v1')
@@ -17,7 +17,7 @@ export const HKDF_INFO = 'keytr nsec encryption v1'
  *
  * The gateway model is federated: multiple independent domains can each
  * authorize their own set of origins. Users encrypt their nsec once per
- * gateway (or standalone rpId), producing separate kind:30079 events.
+ * gateway (or standalone rpId), producing separate kind:31777 events.
  * Any client sharing the same rpId can decrypt the matching event.
  */
 export const DEFAULT_RP_ID = 'keytr.org'
@@ -47,7 +47,7 @@ export interface EncryptedNsecBlob {
   ciphertext: Uint8Array // 48 bytes (32-byte nsec + 16-byte GCM tag)
 }
 
-/** A kind:30079 event payload (before signing) */
+/** A kind:31777 event payload (before signing) */
 export interface KeytrEventTemplate {
   kind: typeof KEYTR_EVENT_KIND
   content: string  // base64-encoded EncryptedNsecBlob

@@ -51,7 +51,7 @@ export async function publishKeytrEvent(
   }
 }
 
-/** Fetch all kind:30079 events for a given pubkey from relays */
+/** Fetch all kind:31777 events for a given pubkey from relays */
 export async function fetchKeytrEvents(
   pubkey: string,
   relayUrls: string[],

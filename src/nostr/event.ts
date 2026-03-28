@@ -8,7 +8,7 @@ interface BuildEventOptions {
   clientName?: string
 }
 
-/** Build an unsigned kind:30079 event template for a passkey-encrypted nsec */
+/** Build an unsigned kind:31777 event template for a passkey-encrypted nsec */
 export function buildKeytrEvent(options: BuildEventOptions): KeytrEventTemplate {
   const { credential, encryptedBlob, clientName } = options
 
@@ -48,7 +48,7 @@ interface ParsedKeytrEvent {
   clientName?: string
 }
 
-/** Parse a kind:30079 event to extract credential info and encrypted blob */
+/** Parse a kind:31777 event to extract credential info and encrypted blob */
 export function parseKeytrEvent(event: {
   kind: number
   content: string

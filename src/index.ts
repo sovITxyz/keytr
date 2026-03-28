@@ -145,7 +145,7 @@ export async function addBackupGateway(
 /**
  * Full login flow: try each event's passkey until one succeeds.
  *
- * Pass all kind:30079 events for this pubkey. The function tries each
+ * Pass all kind:31777 events for this pubkey. The function tries each
  * event in order — the first passkey the authenticator recognises wins.
  * This works regardless of which gateway the passkey was registered with.
  */
