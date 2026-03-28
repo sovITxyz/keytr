@@ -1,4 +1,4 @@
-import { bytesToHex } from '@noble/hashes/utils';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { DEFAULT_RP_ID } from '../types.js';
 import { WebAuthnError, PrfNotSupportedError } from '../errors.js';
 import { prfAuthenticationExtension, extractPrfOutput } from './prf.js';

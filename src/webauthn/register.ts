@@ -1,4 +1,4 @@
-import { randomBytes, hexToBytes } from '@noble/hashes/utils'
+import { randomBytes, hexToBytes } from '@noble/hashes/utils.js'
 import { base64url } from '@scure/base'
 import type { KeytrCredential, RegisterOptions } from '../types.js'
 import { DEFAULT_RP_ID, DEFAULT_RP_NAME } from '../types.js'

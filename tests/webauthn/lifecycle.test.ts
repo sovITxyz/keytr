@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { randomBytes, bytesToHex } from '@noble/hashes/utils'
+import { randomBytes, bytesToHex } from '@noble/hashes/utils.js'
 import { base64url } from '@scure/base'
 import { PRF_SALT } from '../../src/types.js'
 

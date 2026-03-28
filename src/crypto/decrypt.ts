@@ -1,4 +1,4 @@
-import { gcm } from '@noble/ciphers/aes'
+import { gcm } from '@noble/ciphers/aes.js'
 import { base64 } from '@scure/base'
 import { KEYTR_VERSION, type DecryptOptions } from '../types.js'
 import { DecryptionError } from '../errors.js'

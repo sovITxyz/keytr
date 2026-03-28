@@ -1,5 +1,5 @@
-import { hkdf } from '@noble/hashes/hkdf';
-import { sha256 } from '@noble/hashes/sha256';
+import { hkdf } from '@noble/hashes/hkdf.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { HKDF_INFO } from '../types.js';
 /**
  * Derive a 256-bit AES key from PRF output using HKDF-SHA256.
