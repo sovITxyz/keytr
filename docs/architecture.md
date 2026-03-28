@@ -489,6 +489,60 @@ The code exists in `src/fallback/password.ts` (scrypt + AES-256-GCM, NIP-49 comp
 
 ---
 
+## Known Issues
+
+### Password Manager Extensions Intercepting WebAuthn
+
+Browser extensions from password managers — **Bitwarden**, **1Password**, **Dashlane**, and others — can intercept `navigator.credentials.create()` and `navigator.credentials.get()` calls. These extensions register their own WebAuthn handler to offer passkey management through the password manager rather than the browser's native passkey UI.
+
+The problem: most password manager extensions **do not support Related Origin Requests**. When keytr calls `navigator.credentials.get()` with `rpId: "keytr.org"` from an authorized client origin like `bies.sovit.xyz`, the browser would normally:
+
+1. Fetch `https://keytr.org/.well-known/webauthn`
+2. Verify `https://bies.sovit.xyz` is in the origins list
+3. Allow the ceremony to proceed
+
+But if a password manager extension intercepts the call first, it applies its own origin validation — which typically requires an exact match between the requesting origin and the rpId. Since `bies.sovit.xyz !== keytr.org`, the extension rejects the request with an error like:
+
+- `SecurityError: The relying party ID is not a registrable domain suffix of, nor equal to the current domain.`
+- `NotAllowedError: The operation either timed out or was not allowed.`
+
+This affects **all cross-origin flows** — any client using a gateway rpId different from its own domain will fail when these extensions are active.
+
+#### Workarounds for Users
+
+- **Disable the password manager's WebAuthn/passkey integration** in the extension settings. The browser's native passkey support will handle the ceremony correctly.
+  - Bitwarden: Settings → Options → disable "Enable passkey management"
+  - 1Password: Settings → Autofill and save → disable "Passkeys"
+  - Dashlane: Settings → Autofill → disable "Passkey support"
+- **Use the extension's allow-list** if available to exclude keytr gateway domains from interception.
+- **Use a browser profile without password manager extensions** for Nostr clients that rely on keytr passkeys.
+
+#### Recommendations for Client Developers
+
+When a `SecurityError` or `NotAllowedError` occurs during a WebAuthn ceremony where the rpId differs from the current origin, clients should detect this condition and display a targeted hint:
+
+```
+Passkey authentication failed. If you have a password manager extension
+(Bitwarden, 1Password, Dashlane, etc.) installed, it may be intercepting
+WebAuthn requests without supporting cross-origin passkeys.
+
+Try disabling passkey/WebAuthn support in your password manager extension
+settings and retry.
+```
+
+This detection can be implemented by checking:
+1. The error is a `SecurityError` or `NotAllowedError`
+2. The rpId used does not match `window.location.hostname`
+3. The rpId is a known keytr gateway (e.g., `keytr.org`, `nostkey.org`)
+
+If all three conditions are true, the error is likely caused by extension interception rather than a genuine security violation or user cancellation.
+
+#### Long-Term Outlook
+
+Password manager vendors are gradually adding Related Origin Request support. As adoption grows, this issue will diminish. In the meantime, client-side error detection and user guidance are the best mitigation.
+
+---
+
 ## Error Hierarchy
 
 All errors extend `KeytrError`:
