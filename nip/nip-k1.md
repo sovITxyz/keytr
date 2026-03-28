@@ -1,24 +1,24 @@
 NIP-K1
 ======
 
-Passkey-Vaulted Private Keys
------------------------------
+Passkey-Encrypted Private Keys
+-------------------------------
 
 `draft` `optional`
 
-This NIP defines a method for managing Nostr private keys using WebAuthn passkeys as a cryptographic vault. The encryption key for a user's Nostr identity is embedded in the WebAuthn credential's `user.id` (user handle) field, creating a **split-knowledge** system where neither the storage layer nor the authenticator alone can access the private key.
+This NIP defines a method for encrypting Nostr private keys using the WebAuthn PRF extension, storing the ciphertext on Nostr relays, and recovering the private key on any device with the synced passkey. The user's public key is embedded in the credential's `user.id` field, enabling discoverable login without any prior knowledge of the user's identity.
 
 ## Motivation
 
 Nostr private key management is a major UX barrier. Users must manually copy their `nsec` between devices, risking exposure through clipboard, screenshots, or insecure storage. Hardware signers (NIP-46) add complexity. Browser extensions (NIP-07) don't sync across devices.
 
-WebAuthn passkeys solve the transport problem — they sync across devices automatically via iCloud Keychain, Google Password Manager, and similar platform credential managers. They require biometric or PIN verification, and are phishing-resistant by design.
+WebAuthn passkeys solve the transport problem — they sync across devices automatically via iCloud Keychain, Google Password Manager, and similar platform credential managers. They require biometric or PIN verification and are phishing-resistant by design.
 
-This NIP uses the WebAuthn `user.id` field to embed both the user's public key and a symmetric encryption key inside the passkey credential itself. This approach:
+This NIP uses the WebAuthn **PRF extension** to derive a deterministic encryption key from the passkey, and stores the user's **public key** in the credential's `user.id` field. This approach:
 
-- **Works on all WebAuthn authenticators** — unlike the PRF extension, the `user.id` field is part of the base WebAuthn specification and is universally supported.
-- **Creates a split-knowledge model** — the relay stores the encrypted private key but cannot decrypt it; the authenticator holds the decryption key but only releases it after biometric/PIN verification.
-- **Requires a single gesture** — one biometric tap to authenticate and recover the private key.
+- **Hardware-bound encryption** — the PRF secret never leaves the authenticator; the encryption key is computed on-device during each ceremony.
+- **Discoverable login** — the authenticator returns the pubkey via `userHandle` during discoverable authentication, so the client can fetch the encrypted event without any prior state.
+- **Single gesture** — one biometric tap to authenticate and recover the private key.
 
 ## Overview
 
@@ -26,41 +26,46 @@ This NIP uses the WebAuthn `user.id` field to embed both the user's public key a
 ┌─────────────────────────────────────────────────────────────┐
 │                        SETUP                                │
 │                                                             │
-│  Generate nsec ──► Generate export key (random 32B)         │
-│       │                    │                                │
-│       │              ┌─────▼──────┐                         │
-│       │              │  Pack into  │                        │
-│       │              │  user.id    │ ◄── npub (32B)         │
-│       │              │  (64 bytes) │ ◄── export key (32B)   │
-│       │              └─────┬──────┘                         │
-│       │                    │                                │
-│       ▼                    ▼                                │
-│  AES-256-GCM ◄──── export key        Register passkey      │
-│  encrypt nsec                         with user.id          │
+│  Generate nsec ──► Derive pubkey                            │
+│       │                 │                                   │
+│       │           ┌─────▼──────┐                            │
+│       │           │  user.id = │                            │
+│       │           │  pubkey    │ (32 bytes, hex-decoded)     │
+│       │           └─────┬──────┘                            │
+│       │                 │                                   │
+│       │           Register passkey with PRF extension       │
+│       │                 │                                   │
+│       │           PRF output (32 bytes)                     │
+│       │                 │                                   │
+│       ▼                 ▼                                   │
+│  HKDF-SHA256(PRF output, random salt) ──► AES-256 key      │
+│       │                                                     │
+│       ▼                                                     │
+│  AES-256-GCM encrypt nsec                                   │
 │       │                                                     │
 │       ▼                                                     │
 │  kind:30079 event ──► publish to relays                     │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
-│                        LOGIN                                │
+│                   DISCOVERABLE LOGIN                        │
 │                                                             │
-│  Authenticate passkey (biometric/PIN)                       │
+│  Authenticate passkey (allowCredentials: [])                │
+│  Browser shows passkey picker, user taps one                │
+│       │                                                     │
+│       ├── userHandle ──► pubkey (32 bytes)                   │
+│       └── PRF output  ──► 32 bytes                          │
+│                                                             │
+│  Fetch kind:30079 events for pubkey from relays             │
 │       │                                                     │
 │       ▼                                                     │
-│  userHandle returned by authenticator                       │
-│       │                                                     │
-│       ├── bytes 0–31:  npub (hex public key)                │
-│       └── bytes 32–63: export key                           │
-│                │                                            │
-│                ▼                                            │
-│  Fetch kind:30079 events for npub from relays               │
+│  Match event by credential ID (d tag)                       │
 │       │                                                     │
 │       ▼                                                     │
-│  AES-256-GCM decrypt ◄── export key                        │
+│  HKDF-SHA256(PRF output, salt from blob) ──► AES-256 key   │
 │       │                                                     │
 │       ▼                                                     │
-│  Recovered nsec                                             │
+│  AES-256-GCM decrypt ──► recovered nsec                     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -68,38 +73,64 @@ This NIP uses the WebAuthn `user.id` field to embed both the user's public key a
 
 ### User Handle Format
 
-The WebAuthn credential's `user.id` field stores exactly **64 bytes**:
+The WebAuthn credential's `user.id` field stores the user's **32-byte Nostr public key** (raw x-only pubkey, not bech32-encoded):
 
 ```
 Offset  Length  Field
-0       32      Nostr public key (raw 32-byte x-only pubkey, not bech32)
-32      32      Export key (random 256-bit symmetric key)
+0       32      Nostr public key (raw 32-byte x-only pubkey)
 ────────────
-Total: 64 bytes
+Total: 32 bytes
 ```
 
-The 64-byte limit matches the [WebAuthn specification's maximum `user.id` length](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentity-id).
+This is well within the [WebAuthn specification's 64-byte maximum](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentity-id) for `user.id`. The public key is naturally unique per user, satisfying WebAuthn's uniqueness requirement for `user.id` within a relying party.
 
-The **export key** is a cryptographically random 256-bit value generated once during registration. It serves as the AES-256-GCM encryption key for the user's Nostr private key.
+The public key is stored in `user.id` to enable **discoverable authentication** — when the user authenticates with `allowCredentials: []`, the authenticator returns the `userHandle` containing the pubkey, allowing the client to fetch the correct kind:30079 event from relays without any prior knowledge of the user's identity.
+
+### PRF Extension
+
+The WebAuthn **PRF (Pseudo-Random Function) extension** provides a deterministic 32-byte output from the authenticator, derived from a fixed salt and the credential's internal secret. The PRF output serves as the input keying material for encryption key derivation.
+
+Implementations MUST use the following PRF salt for all ceremonies:
+
+```
+PRF_SALT = UTF-8("keytr-v1")    // as ArrayBuffer
+```
+
+The salt is fixed by specification — it MUST NOT vary per user or per ceremony. The PRF output is deterministic: the same credential with the same salt always produces the same 32-byte output, on any device that has the synced passkey.
+
+**Browser support**: Chrome 116+, Safari 18+, Edge 116+, Firefox 122+.
+
+### Key Derivation
+
+The raw PRF output is NOT used directly as an encryption key. It MUST be processed through HKDF-SHA256:
+
+```
+KEY = HKDF-SHA256(
+  ikm    = PRF_OUTPUT,                      // 32 bytes from authenticator
+  salt   = RANDOM(32),                      // fresh per encryption, stored in blob
+  info   = UTF-8("keytr nsec encryption v1"),
+  length = 32                               // 256-bit AES key
+)
+```
+
+The random HKDF salt ensures that re-encrypting the same nsec with the same passkey produces different ciphertext each time.
 
 ### Registration (Setup)
 
 1. Generate a random 32-byte Nostr private key (nsec).
-2. Derive the 32-byte public key (npub) from the nsec.
-3. Generate a cryptographically random 32-byte **export key**.
-4. Encrypt the nsec using the export key (see [Encryption](#encryption)) → produces an encrypted blob.
-5. Pack `npub (32 bytes) || export key (32 bytes)` → 64 bytes → set as `user.id`.
-6. Register a WebAuthn passkey with the following options:
+2. Derive the 32-byte public key from the nsec.
+3. Set `user.id` to the raw 32-byte public key.
+4. Register a WebAuthn passkey with the following options:
 
 ```javascript
 {
-  challenge: serverOrClientChallenge,
+  challenge: randomBytes(32),
   rp: {
     name: "Relying Party Name",
     id: rpId                              // e.g., "keytr.org"
   },
   user: {
-    id: packedUserHandle,                 // 64 bytes: npub + export key
+    id: pubkeyBytes,                      // 32 bytes: raw Nostr public key
     name: userIdentifier,                 // e.g., "npub1...@keytr.org"
     displayName: userDisplayName
   },
@@ -112,76 +143,120 @@ The **export key** is a cryptographically random 256-bit value generated once du
     residentKey: "required",
     requireResidentKey: true
   },
-  attestation: "none"
+  attestation: "none",
+  extensions: {
+    prf: {
+      eval: { first: PRF_SALT }           // ArrayBuffer of UTF-8("keytr-v1")
+    }
+  }
 }
 ```
 
+5. Verify that the PRF extension returned output (check `prf.results.first` in the extension results). If PRF output is not available during registration, perform a follow-up assertion against the newly created credential to obtain it — some authenticators (e.g., YubiKey) only return PRF output during authentication, not creation.
+6. Encrypt the nsec using the PRF output (see [Encryption](#encryption)) to produce an encrypted blob.
 7. Build a kind:30079 event containing the encrypted blob (see [Event Format](#event-format)).
 8. Sign the event with the nsec and publish to Nostr relays.
-9. Zero the nsec and export key from memory.
+9. Zero the PRF output, derived key, and nsec from memory.
 
-Clients SHOULD support both ES256 (alg: -7) and RS256 (alg: -257) to maximize authenticator compatibility. Discoverable credentials (`residentKey: "required"`) and user verification (`userVerification: "required"`) are REQUIRED — these ensure the passkey is a true synced passkey and that biometric/PIN is always enforced.
+Clients SHOULD support both ES256 (alg: -7) and RS256 (alg: -257) to maximize authenticator compatibility. Discoverable credentials (`residentKey: "required"`) and user verification (`userVerification: "required"`) are REQUIRED.
 
-### Authentication (Login)
+### Authentication (Discoverable Login)
+
+This is the primary login flow. No prior knowledge of the user's pubkey or credential ID is needed.
 
 1. Call `navigator.credentials.get()`:
 
 ```javascript
 {
-  challenge: clientChallenge,             // random bytes
-  rpId: rpId,                             // from event's "rp" tag
+  challenge: randomBytes(32),
+  rpId: rpId,                             // e.g., "keytr.org"
+  allowCredentials: [],                   // empty = browser shows passkey picker
   userVerification: "required",
-  allowCredentials: []                    // empty = discoverable credential
+  extensions: {
+    prf: {
+      eval: { first: PRF_SALT }
+    }
+  }
 }
 ```
 
-2. Extract `userHandle` from the `AuthenticatorAssertionResponse`.
-3. Unpack the user handle:
-   - Bytes 0–31: Nostr public key (raw 32-byte x-only pubkey)
-   - Bytes 32–63: Export key
-4. Fetch kind:30079 events for the extracted public key from Nostr relays.
-5. Select the event whose `d` tag matches the credential ID from the authenticator response.
-6. Parse the event and extract the encrypted blob from the `content` field.
-7. Decrypt the nsec using the export key (see [Decryption](#decryption)).
-8. Verify that the public key derived from the decrypted nsec matches the npub from the user handle.
-9. Zero the export key from memory.
+2. Extract `userHandle` from the `AuthenticatorAssertionResponse` — this is the 32-byte Nostr public key set during registration.
+3. Extract the 32-byte PRF output from `prf.results.first` in the extension results.
+4. Extract the credential ID from `rawId`.
+5. Fetch kind:30079 events for the recovered public key from Nostr relays.
+6. Select the event whose `d` tag matches the base64url-encoded credential ID from the authenticator response.
+7. Parse the event and extract the encrypted blob from the `content` field.
+8. Decrypt the nsec using the PRF output (see [Decryption](#decryption)).
+9. Zero the PRF output and derived key from memory.
 
-Using `allowCredentials: []` (empty array) triggers the platform's passkey picker, allowing the user to select which identity to authenticate with. This is the recommended approach for login.
+Using `allowCredentials: []` (empty array) triggers the platform's passkey picker, allowing the user to select which identity to authenticate with.
+
+### Authentication (Known Credential)
+
+When the client already knows the user's pubkey (e.g., from localStorage or URL parameter), it can skip discovery and authenticate directly:
+
+1. Fetch kind:30079 events for the known pubkey from relays.
+2. For each event, attempt authentication with the specific credential:
+
+```javascript
+{
+  challenge: randomBytes(32),
+  rpId: rpId,                             // from event's "rp" tag
+  allowCredentials: [{
+    type: "public-key",
+    id: credentialId,                     // from event's "d" tag (base64url-decoded)
+    transports: transports               // from event's "transports" tag
+  }],
+  userVerification: "required",
+  extensions: {
+    prf: {
+      eval: { first: PRF_SALT }
+    }
+  }
+}
+```
+
+3. Extract the 32-byte PRF output and decrypt the nsec.
+4. If the authenticator rejects (no matching credential), try the next event.
+
+This flow is useful when clients maintain a credential index or when the user provides their npub manually.
 
 ### Encryption
 
-The export key is used directly as the AES-256-GCM key. No key derivation function is applied — the export key is already a cryptographically random 256-bit value.
-
 ```
-IV  = random(12)                          // 12-byte nonce
-AAD = CREDENTIAL_ID_BYTES                 // raw credential ID
+IV       = RANDOM(12)                     // 12-byte AES-GCM nonce
+HKDF_SALT = RANDOM(32)                   // 32-byte salt for HKDF
+KEY      = HKDF-SHA256(PRF_OUTPUT, HKDF_SALT, "keytr nsec encryption v1", 32)
+AAD      = UTF-8("keytr") || 0x01 || CREDENTIAL_ID_BYTES
 
 CIPHERTEXT = AES-256-GCM(
-  key       = EXPORT_KEY,                 // 32 bytes from user.id
+  key       = KEY,
   iv        = IV,
-  plaintext = NSEC_RAW_BYTES,             // 32 bytes
+  plaintext = NSEC_RAW_BYTES,            // 32 bytes
   aad       = AAD
 )
+// CIPHERTEXT is 48 bytes (32-byte plaintext + 16-byte GCM auth tag)
 ```
 
-The AAD (Additional Authenticated Data) binds the ciphertext to the specific WebAuthn credential ID, preventing an attacker from substituting one encrypted blob for another.
+The AAD (Additional Authenticated Data) binds the ciphertext to the specific WebAuthn credential ID and version byte, preventing substitution and downgrade attacks.
 
 ### Decryption
 
 ```
-1. Deserialize the blob to extract version, IV, and ciphertext.
-2. Reconstruct AAD from the credential ID.
-3. Decrypt:
+1. Deserialize the blob to extract version, IV, HKDF salt, and ciphertext.
+2. Derive the key: KEY = HKDF-SHA256(PRF_OUTPUT, HKDF_SALT, "keytr nsec encryption v1", 32)
+3. Reconstruct AAD: UTF-8("keytr") || version || CREDENTIAL_ID_BYTES
+4. Decrypt:
 
 NSEC_RAW_BYTES = AES-256-GCM-DECRYPT(
-  key        = EXPORT_KEY,
+  key        = KEY,
   iv         = IV,
   ciphertext = CIPHERTEXT,
-  aad        = CREDENTIAL_ID_BYTES
+  aad        = AAD
 )
 ```
 
-If the wrong passkey is used, the export key will not match, and AES-GCM decryption will fail with an authentication error. If the credential ID does not match, the AAD mismatch causes the same failure.
+If the wrong passkey is used, the PRF output will differ, producing a wrong key, and AES-GCM decryption will fail with an authentication error. If the credential ID does not match, the AAD mismatch causes the same failure.
 
 ### Encrypted Blob Format
 
@@ -191,14 +266,15 @@ The `content` field of the Nostr event contains a base64-encoded binary blob:
 Offset  Length  Field
 0       1       Version (0x01)
 1       12      IV (AES-GCM nonce)
-13      48      Ciphertext (32-byte nsec + 16-byte GCM auth tag)
+13      32      HKDF salt
+45      48      Ciphertext (32-byte nsec + 16-byte GCM auth tag)
 ────────────
-Total: 61 bytes → ~82 base64 characters
+Total: 93 bytes → ~124 base64 characters
 ```
 
 Implementations MUST reject blobs where:
 - The version byte is not `0x01`
-- The total length is not exactly 61 bytes
+- The total length is not exactly 93 bytes
 
 ### Event Kind
 
@@ -212,12 +288,12 @@ Each passkey credential produces a distinct event, identified by the credential 
 {
   "kind": 30079,
   "pubkey": "<user's hex public key>",
-  "content": "<base64-encoded encrypted blob>",
+  "content": "<base64-encoded encrypted blob (93 bytes → ~124 chars)>",
   "tags": [
     ["d", "<credential-id-base64url>"],
     ["rp", "<relying-party-id>"],
     ["algo", "aes-256-gcm"],
-    ["scheme", "passkey-vault"],
+    ["kdf", "hkdf-sha256"],
     ["v", "1"],
     ["transports", "internal", "hybrid", "..."],
     ["client", "<client-name>"]
@@ -235,7 +311,7 @@ Each passkey credential produces a distinct event, identified by the credential 
 | `d` | Yes | Base64url-encoded WebAuthn credential ID. Makes this a parameterized replaceable event — re-encryption with the same passkey replaces the old event. |
 | `rp` | Yes | WebAuthn Relying Party ID (domain). Clients need this to know which rpId to use for the authentication ceremony. |
 | `algo` | Yes | Encryption algorithm. MUST be `aes-256-gcm`. |
-| `scheme` | Yes | Key management scheme. MUST be `passkey-vault` for this NIP. Distinguishes from other encrypted key storage approaches. |
+| `kdf` | Yes | Key derivation function. MUST be `hkdf-sha256`. |
 | `v` | Yes | Blob format version. Currently `1`. |
 | `transports` | No | WebAuthn authenticator transports (e.g., `internal`, `hybrid`, `usb`, `ble`, `nfc`). Helps clients optimize the authentication UX. |
 | `client` | No | Name of the client that created this event. Informational only. |
@@ -257,7 +333,7 @@ WebAuthn's [Related Origin Requests](https://w3c.github.io/webauthn/#sctn-relate
 }
 ```
 
-A passkey registered with a gateway's rpId on **any** listed origin works on **every** listed origin. The authenticator returns the same credential and user handle regardless of which authorized origin triggers the ceremony.
+A passkey registered with a gateway's rpId on **any** listed origin works on **every** listed origin. The authenticator returns the same credential, PRF output, and user handle regardless of which authorized origin triggers the ceremony.
 
 The model is **federated**: there is no single canonical gateway. Multiple independent domains can each host their own `.well-known/webauthn` and authorize their own set of Nostr clients:
 
@@ -278,7 +354,7 @@ The authentication flow for cross-gateway usage:
 1. Client on origin B calls `navigator.credentials.get()` with `rpId` set to gateway A's domain
 2. Browser fetches `https://gateway-a/.well-known/webauthn`
 3. Browser verifies origin B is listed in the `origins` array
-4. Authenticator runs the ceremony using gateway A's rpId — returns the same credential and user handle
+4. Authenticator runs the ceremony using gateway A's rpId — returns the same credential, PRF output, and user handle
 
 This requires browser support for [Related Origin Requests](https://w3c.github.io/webauthn/#sctn-related-origins) (Chrome 128+, Safari 18+).
 
@@ -304,81 +380,85 @@ For maximum portability, clients SHOULD:
 
 ## Security Model
 
-### Split-Knowledge Design
+### PRF-Derived Keys
 
-The architecture ensures that no single party can access the user's Nostr private key:
+The encryption key is derived from the authenticator's PRF output, not stored directly in the credential. The PRF secret is internal to the authenticator — it never leaves the hardware. The key is computed during each WebAuthn ceremony and exists in client memory only for the duration of encryption/decryption.
 
-| Component | Has Access To | Cannot Access |
-|-----------|--------------|---------------|
-| **Relay** | Encrypted blob (kind:30079 event) | Export key — cannot decrypt |
-| **Passkey Authenticator** | Export key stored in `user.id` | Only releases after biometric/PIN verification |
-| **Neither Alone** | — | The actual Nostr private key (nsec) |
-
-Both the relay's encrypted event **and** the authenticator's export key are required to reconstruct the private key. This is conceptually a 2-of-2 secret sharing scheme.
+When passkeys sync across devices (via iCloud Keychain, Google Password Manager, etc.), the PRF secret syncs as part of the credential material. The same PRF salt produces the same output on any device that holds the synced credential.
 
 ### Origin Binding
 
-The passkey ceremony is bound to the rpId. A phishing site on a different domain cannot trigger the passkey — the browser enforces origin checks before the authenticator is contacted.
+The passkey ceremony is bound to the rpId. A phishing site on a different domain cannot trigger the passkey — the browser enforces origin checks before the authenticator is contacted. Even if triggered, a different rpId would produce a different (useless) PRF output.
 
 ### User Verification
 
-Every operation requires `userVerification: "required"`, meaning biometric (Face ID, Touch ID, fingerprint) or PIN verification. An attacker with physical access to the device still cannot extract the export key without passing user verification.
+Every operation requires `userVerification: "required"`, meaning biometric (Face ID, Touch ID, fingerprint) or PIN verification. An attacker with physical access to the device still cannot extract the PRF output without passing user verification.
 
-### Passkey Sync Security
+### AAD Binding
 
-When passkeys sync across devices (via iCloud Keychain, Google Password Manager, etc.), the `user.id` — including the export key — syncs with them. The security of the export key therefore depends on the security of the credential manager:
+The AES-GCM ciphertext is authenticated against the credential ID and version byte. This prevents an attacker from:
 
-- **iCloud Keychain**: End-to-end encrypted, protected by device passcode and Apple ID.
-- **Google Password Manager**: Encrypted with the user's Google account credentials.
-- **FIDO2 hardware keys**: No sync; export key is device-bound.
+- Substituting one encrypted blob for another (credential ID mismatch)
+- Downgrading the blob format (version mismatch)
 
-Clients SHOULD inform users that the security of their Nostr identity is tied to the security of their passkey provider.
+### Unique Ciphertexts
+
+The random IV and random HKDF salt ensure that re-encrypting the same nsec with the same passkey produces different ciphertext each time. This prevents an observer from detecting re-encryption events.
 
 ### Relay Safety
 
-The encrypted blob published to relays is meaningless without the export key. An attacker who obtains the event from a relay still needs:
+The encrypted blob published to relays is meaningless without the PRF output. An attacker who obtains the event from a relay still needs:
 
 1. Access to the user's synced passkey (or the physical authenticator)
 2. The ability to pass biometric/PIN verification
 
-Offline brute-force is infeasible — AES-256-GCM with a random 256-bit key has no known practical attack.
+Offline brute-force is infeasible — the PRF output is a 32-byte value derived from the authenticator's internal HMAC secret, and the HKDF step adds a per-encryption salt.
 
 ### Passkey Deletion = Permanent Key Loss
 
-If a user deletes all passkeys that hold the export key, and has no other backup of their nsec, the encrypted data on relays becomes permanently irrecoverable. Clients MUST warn users about this and SHOULD encourage:
+If a user deletes all passkeys that hold the credential, and has no other backup of their nsec, the encrypted data on relays becomes permanently irrecoverable. Clients MUST warn users about this and SHOULD encourage:
 
 - Registering multiple passkeys (e.g., phone + laptop + hardware key)
+- Registering across multiple gateways for redundancy
 - Keeping a separate backup of the nsec (e.g., NIP-49 encrypted backup)
 
 ### Memory Hygiene
 
-Implementations SHOULD zero the export key, decrypted nsec, and any intermediate key material from memory after use. In JavaScript, overwrite `Uint8Array` contents with zeros in a `finally` block.
+Implementations SHOULD zero the PRF output, derived AES key, and decrypted nsec from memory after use. In JavaScript, overwrite `Uint8Array` contents with zeros in a `finally` block.
 
 ### Server-Side Considerations
 
-If an implementation uses a server-side component (e.g., for challenge generation or encrypted data storage), the `userHandle` — which contains the export key — is returned as part of the `AuthenticatorAssertionResponse`. Implementations MUST extract the export key **client-side** and MUST NOT send the raw user handle to any server. Only the npub (bytes 0–31) should be transmitted for account identification.
+If an implementation uses a server-side component (e.g., for challenge generation), the `userHandle` is returned as part of the `AuthenticatorAssertionResponse`. The user handle contains the public key (which is already public information), so transmitting it to a server for account identification is acceptable. However, the PRF output MUST be extracted and used **client-side only** and MUST NOT be sent to any server.
 
 ## Multiple Passkeys
 
 Users SHOULD register multiple passkeys for redundancy. Each passkey:
 
 - Has its own credential ID
-- Contains the same npub but a **different** export key in its `user.id`
-- Produces a separate kind:30079 event with a different `d` tag
+- Contains the same pubkey in its `user.id`
+- Produces a different PRF output (different credential → different HMAC secret)
+- Produces a separate kind:30079 event with a different `d` tag and different encrypted blob
 - Can independently decrypt its corresponding event
 
 To register an additional passkey for an existing identity:
 
 1. Decrypt the nsec using any existing passkey
-2. Generate a new random export key
-3. Re-encrypt the nsec with the new export key
-4. Pack the same npub + new export key into the new passkey's `user.id`
-5. Register the new passkey
-6. Publish the new kind:30079 event
+2. Register a new passkey with the same pubkey as `user.id`
+3. Encrypt the nsec with the new passkey's PRF output
+4. Publish the new kind:30079 event
+
+## Constants
+
+```
+KEYTR_VERSION    = 1
+KEYTR_EVENT_KIND = 30079
+PRF_SALT         = UTF-8("keytr-v1")
+HKDF_INFO        = "keytr nsec encryption v1"
+```
 
 ## Acknowledgments
 
-The passkey-vaulted key management approach described in this NIP was pioneered by [BitTasker](https://bittasker.com), who first implemented the split-knowledge model using the WebAuthn `user.id` field to secure Nostr private keys in production.
+The passkey-based key management approach described in this NIP was inspired by [BitTasker](https://bittasker.com), who pioneered the concept of using the WebAuthn `user.id` field for Nostr private key security. NIP-K1 evolves this design to use the PRF extension for key derivation, storing only the public key in `user.id` for discoverable authentication.
 
 ## Relation to Other NIPs
 

@@ -105,21 +105,21 @@ Source: `src/webauthn/prf.ts`
 
 `registerPasskey(options)` does:
 
-1. Generate random 32-byte user ID and challenge
-2. Build `CredentialCreationOptions`:
+1. Convert the hex pubkey to bytes and set as `user.id` (32 bytes — enables discoverable login)
+2. Generate random challenge
+3. Build `CredentialCreationOptions`:
    - `rpId`: defaults to `"keytr.org"` (or custom domain)
    - Algorithms: ES256 (-7), RS256 (-257)
    - `authenticatorSelection`: resident key required, user verification required
    - `extensions`: PRF with salt `"keytr-v1"`
-3. Call `navigator.credentials.create()`
-4. Verify `prf.enabled === true` in the response — throws `PrfNotSupportedError` if not
-5. Extract the 32-byte PRF output from `prf.results.first`
+4. Call `navigator.credentials.create()`
+5. Extract the 32-byte PRF output from `prf.results.first`. If not available (e.g., YubiKey), perform a follow-up assertion against the new credential to obtain it.
 6. Extract credential ID (raw bytes + base64url), rpId, transports
 7. Return `{ credential: KeytrCredential, prfOutput: Uint8Array }`
 
 Source: `src/webauthn/register.ts`
 
-### Authentication
+### Authentication (Known Credential)
 
 `authenticatePasskey(options)` does:
 
@@ -131,6 +131,23 @@ Source: `src/webauthn/register.ts`
 2. Call `navigator.credentials.get()` — triggers biometric/PIN
 3. Extract 32-byte PRF output
 4. Return the PRF output for decryption
+
+Source: `src/webauthn/authenticate.ts`
+
+### Authentication (Discoverable)
+
+`discoverPasskey(options?)` does:
+
+1. Build `CredentialRequestOptions`:
+   - `rpId`: defaults to `"keytr.org"`
+   - Random challenge
+   - `allowCredentials: []` — empty, so the browser shows all resident keys for this rpId
+   - `extensions`: PRF with salt `"keytr-v1"`
+2. Call `navigator.credentials.get()` — browser shows passkey picker, user selects one
+3. Extract pubkey from `response.userHandle` (the 32-byte public key set during registration)
+4. Extract 32-byte PRF output
+5. Extract credential ID from `rawId`
+6. Return `{ pubkey, prfOutput, credentialId }`
 
 Source: `src/webauthn/authenticate.ts`
 
@@ -229,11 +246,12 @@ Internally:
 
 1. `generateNsec()` → 32-byte nsec
 2. `nsecToNpub(nsec)` → bech32 public key
-3. `registerPasskey()` → credential + PRF output
-4. `encryptNsec({ nsecBytes, prfOutput, credentialId })` → base64 blob
-5. Zero out PRF output (in `finally` block)
-6. `buildKeytrEvent({ credential, encryptedBlob })` → unsigned event template
-7. Return everything
+3. `nsecToHexPubkey(nsec)` → hex pubkey (passed to registerPasskey as `user.id`)
+4. `registerPasskey({ ...options, pubkey })` → credential + PRF output
+5. `encryptNsec({ nsecBytes, prfOutput, credentialId })` → base64 blob
+6. Zero out PRF output (in `finally` block)
+7. `buildKeytrEvent({ credential, encryptedBlob })` → unsigned event template
+8. Return everything
 
 The caller is responsible for: signing the event with the nsec, publishing it to relays, and zeroing `nsecBytes` after use.
 
@@ -264,7 +282,29 @@ This is a separate action from setup — the user opts in when they want resilie
 
 Source: `src/index.ts`
 
-### Login (Key Recovery on New Device)
+### Discoverable Login (No Prior State)
+
+```typescript
+const { nsecBytes, npub, pubkey } = await discoverAndLogin(
+  ['wss://relay.damus.io'],
+  { rpId: 'keytr.org' }
+)
+```
+
+One call, no npub input needed:
+
+1. `discoverPasskey({ rpId })` → browser shows passkey picker → returns pubkey, PRF output, credential ID
+2. `fetchKeytrEvents(pubkey, relays)` → fetch kind:30079 events for the recovered pubkey
+3. Match the event whose `d` tag equals `base64url(credentialId)`
+4. `decryptNsec({ encryptedBlob, prfOutput, credentialId })` → 32-byte nsec
+5. Zero out PRF output (in `finally` block)
+6. Return `{ nsecBytes, npub, pubkey }`
+
+If no matching event is found, throws `KeytrError` (the passkey may have been registered before discoverable login was enabled).
+
+Source: `src/index.ts`
+
+### Login with Known Pubkey
 
 ```typescript
 const events = await fetchKeytrEvents(pubkey, relayUrls)
@@ -282,7 +322,7 @@ Accepts an **array** of kind:30079 events. Tries each event in order until a mat
    f. Return `{ nsecBytes, npub }`
 2. If no event succeeds, throw `WebAuthnError`
 
-This means login works regardless of which gateway's passkey is available on the current device.
+This flow is useful when the client already knows the pubkey (e.g., from localStorage or a URL parameter).
 
 Source: `src/index.ts`
 
@@ -624,7 +664,8 @@ src/
 ```typescript
 KeytrCredential, EncryptedNsecBlob, KeytrEventTemplate,
 EncryptOptions, DecryptOptions, PrfSupportInfo,
-RegisterOptions, AuthenticateOptions, KeytrBundle
+RegisterOptions, AuthenticateOptions, DiscoverOptions, DiscoverResult,
+KeytrBundle
 ```
 
 ### High-Level
@@ -632,6 +673,7 @@ RegisterOptions, AuthenticateOptions, KeytrBundle
 ```typescript
 setupKeytr(options)              // Full registration flow (1 passkey prompt)
 addBackupGateway(nsec, options)  // Register backup on another gateway
+discoverAndLogin(relays, opts?)  // Discoverable login — no npub needed
 loginWithKeytr(events)           // Try each event until a passkey matches
 ```
 
@@ -649,8 +691,9 @@ deserializeBlob(bytes)   // Unpack from binary
 
 ```typescript
 checkPrfSupport()                  // Detect PRF capability
-registerPasskey(options)           // Create passkey + get PRF
-authenticatePasskey(options)       // Assert passkey + get PRF
+registerPasskey(options)           // Create passkey + get PRF (pubkey stored as user.id)
+authenticatePasskey(options)       // Assert known passkey + get PRF
+discoverPasskey(options?)          // Discoverable auth — returns pubkey + PRF + credentialId
 ```
 
 ### Nostr

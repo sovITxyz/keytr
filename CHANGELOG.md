@@ -6,11 +6,24 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-27
+
 ### Added
+- **Discoverable passkey login** — `discoverPasskey()` and `discoverAndLogin()` for zero-prior-knowledge login. The browser shows available passkeys, the user picks one, and the nsec is recovered without any npub input or localStorage state.
+- `DiscoverOptions` and `DiscoverResult` types for the discoverable flow.
 - Configurable timeouts for WebAuthn ceremonies (`timeout` option on `RegisterOptions` and `AuthenticateOptions`)
 - Configurable timeouts for relay operations (`RelayOptions` with `timeout` parameter)
 - Integration tests for relay publish/fetch roundtrips
 - Integration tests for WebAuthn credential lifecycle (mocked)
+
+### Changed
+- **BREAKING:** `RegisterOptions.pubkey` is now a required field (hex-encoded 32-byte Nostr public key). The pubkey is stored as WebAuthn `user.id` to enable discoverable authentication.
+- `setupKeytr()` and `addBackupGateway()` derive the pubkey automatically from the nsec — no change needed for callers of these high-level functions.
+- Registration uses `hexToBytes(pubkey)` as `user.id` instead of `randomBytes(32)`.
+
+### Migration
+- New registrations work with discoverable login immediately.
+- Old registrations (random `user.id`) still work with `loginWithKeytr(events)` but cannot use `discoverAndLogin()`. Users can re-register their passkey to upgrade.
 
 ## [0.1.0] - 2025-05-20
 
