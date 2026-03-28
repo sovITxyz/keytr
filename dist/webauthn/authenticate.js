@@ -49,26 +49,35 @@ export async function authenticatePasskey(options) {
 /**
  * Discoverable passkey authentication — no prior pubkey or credential ID needed.
  *
- * The browser shows all resident keys for this rpId and the user picks one.
- * The pubkey is recovered from WebAuthn userHandle (set during registration).
+ * Uses a two-step flow to work around Safari iOS 18+ not returning PRF
+ * extension output during discoverable authentication (empty allowCredentials):
+ *
+ *   Step 1 — Discovery (no PRF): empty allowCredentials, browser shows the
+ *   passkey picker. Returns the credential ID (rawId) and pubkey (userHandle).
+ *
+ *   Step 2 — Targeted assertion WITH PRF: the discovered credentialId goes
+ *   into allowCredentials so the browser can evaluate the PRF extension.
+ *   This second assertion should be auto-approved since it targets the same
+ *   credential that was just authenticated.
  *
  * @returns The recovered pubkey, PRF output, and credential ID
  */
 export async function discoverPasskey(options) {
     const rpId = options?.rpId ?? DEFAULT_RP_ID;
-    const getOptions = {
+    const timeout = options?.timeout ?? 120000;
+    // Step 1: Discovery — no PRF, empty allowCredentials
+    const discoveryOptions = {
         publicKey: {
             rpId,
             challenge: crypto.getRandomValues(new Uint8Array(32)),
             allowCredentials: [],
             userVerification: 'required',
-            timeout: options?.timeout ?? 120000,
-            extensions: prfAuthenticationExtension(),
+            timeout,
         },
     };
     let assertion;
     try {
-        const result = await navigator.credentials.get(getOptions);
+        const result = await navigator.credentials.get(discoveryOptions);
         if (!result)
             throw new WebAuthnError('Discoverable authentication returned null');
         assertion = result;
@@ -83,13 +92,41 @@ export async function discoverPasskey(options) {
         throw new WebAuthnError('Authenticator did not return a userHandle — cannot recover pubkey');
     }
     const pubkey = bytesToHex(new Uint8Array(response.userHandle));
-    const extensionResults = assertion.getClientExtensionResults();
+    const credentialId = new Uint8Array(assertion.rawId);
+    // Step 2: Targeted assertion WITH PRF
+    const prfOptions = {
+        publicKey: {
+            rpId,
+            challenge: crypto.getRandomValues(new Uint8Array(32)),
+            allowCredentials: [
+                {
+                    type: 'public-key',
+                    id: credentialId.buffer,
+                },
+            ],
+            userVerification: 'required',
+            timeout,
+            extensions: prfAuthenticationExtension(),
+        },
+    };
+    let prfAssertion;
+    try {
+        const result = await navigator.credentials.get(prfOptions);
+        if (!result)
+            throw new WebAuthnError('PRF follow-up authentication returned null');
+        prfAssertion = result;
+    }
+    catch (err) {
+        if (err instanceof WebAuthnError)
+            throw err;
+        throw new WebAuthnError(`PRF follow-up authentication failed: ${err.message}`);
+    }
+    const extensionResults = prfAssertion.getClientExtensionResults();
     const prfOutput = extractPrfOutput(extensionResults);
     if (!prfOutput || prfOutput.length !== 32) {
         throw new PrfNotSupportedError('PRF output not available during discoverable authentication. ' +
             'The authenticator may not support PRF.');
     }
-    const credentialId = new Uint8Array(assertion.rawId);
     return { pubkey, prfOutput, credentialId };
 }
 //# sourceMappingURL=authenticate.js.map
