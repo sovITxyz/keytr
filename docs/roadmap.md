@@ -2,7 +2,7 @@
 
 ## Current State: NIP-K1 (v0.3.x)
 
-keytr implements NIP-K1 — passkey-encrypted private keys. A user's nsec is encrypted with the WebAuthn PRF extension and published to Nostr relays as a kind:30079 event. Any device with the synced passkey can decrypt it in one biometric tap.
+keytr implements NIP-K1 — passkey-encrypted private keys. A user's nsec is encrypted with the WebAuthn PRF extension and published to Nostr relays as a kind:31777 event. Any device with the synced passkey can decrypt it in one biometric tap.
 
 **What's shipping today:**
 - Full NIP-K1 implementation (encrypt, decrypt, event publish/fetch)
@@ -18,7 +18,7 @@ keytr implements NIP-K1 — passkey-encrypted private keys. A user's nsec is enc
 
 ### Problem
 
-K1 stores the encrypted nsec on Nostr relays. If all relays purge the kind:30079 event, the user has a working passkey but nothing to decrypt — login fails permanently. The encrypted event is safe to store anywhere (can't be decrypted without the passkey's PRF output), so the mitigation is redundant storage across independent layers.
+K1 stores the encrypted nsec on Nostr relays. If all relays purge the kind:31777 event, the user has a working passkey but nothing to decrypt — login fails permanently. The encrypted event is safe to store anywhere (can't be decrypted without the passkey's PRF output), so the mitigation is redundant storage across independent layers.
 
 See [architecture.md — Backup & Resilience](architecture.md#backup--resilience) for the full design and current backup layers (relay redundancy, multi-gateway, client cache, event export, HTTP fallback).
 
@@ -26,7 +26,7 @@ See [architecture.md — Backup & Resilience](architecture.md#backup--resilience
 
 **Status**: Blocked on ecosystem adoption
 
-The ideal end-state: store the signed kind:30079 event inside the passkey itself via the WebAuthn `largeBlob` extension. One passkey carries both the decryption key (PRF) and the encrypted payload. No relay, no file, no external storage.
+The ideal end-state: store the signed kind:31777 event inside the passkey itself via the WebAuthn `largeBlob` extension. One passkey carries both the decryption key (PRF) and the encrypted payload. No relay, no file, no external storage.
 
 **Current compatibility (as of March 2026):**
 
@@ -51,7 +51,7 @@ Google Password Manager + Windows Hello = majority of passkey users. Until they 
 **Implementation plan (when adoption is sufficient):**
 
 1. At registration: detect `largeBlob` support via `getClientExtensionResults()`
-2. If supported: write the signed kind:30079 event JSON into the credential's largeBlob
+2. If supported: write the signed kind:31777 event JSON into the credential's largeBlob
 3. At login: if relay fetch returns no events, attempt `largeBlob` read before giving up
 4. Never depend on it — treat as an opportunistic bonus layer alongside existing backups
 
@@ -61,7 +61,7 @@ Google Password Manager + Windows Hello = majority of passkey users. Until they 
 
 These don't require any new WebAuthn features — they're client-side patterns that any keytr integration can adopt today:
 
-- **Local cache**: Store kind:30079 events in localStorage/IndexedDB after login; check before relay fetch
+- **Local cache**: Store kind:31777 events in localStorage/IndexedDB after login; check before relay fetch
 - **Event export**: Let users download the signed event as JSON or QR code for offline recovery
 
 These should be documented as recommended patterns in the integration guide and optionally provided as helper utilities in the library.
@@ -76,7 +76,7 @@ Gateway operators (keytr.org, nostkey.org) could serve events at:
 GET https://keytr.org/.well-known/nostr/k1/<hex-pubkey>
 ```
 
-Simple HTTP GET, no Nostr protocol. Clients try this after relay fetch fails. Requires gateway-side infrastructure to ingest and serve kind:30079 events.
+Simple HTTP GET, no Nostr protocol. Clients try this after relay fetch fails. Requires gateway-side infrastructure to ingest and serve kind:31777 events.
 
 ---
 

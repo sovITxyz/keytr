@@ -25,7 +25,7 @@ Tier 3: Discoverable (cold start)
   └─ Auto-index the credential for next time
 ```
 
-Every tier ends with a single biometric prompt. The difference is **how the client finds the right kind:30079 events** — by targeted pubkey query (tiers 1–2) or by recovering the pubkey from the passkey itself (tier 3).
+Every tier ends with a single biometric prompt. The difference is **how the client finds the right kind:31777 events** — by targeted pubkey query (tiers 1–2) or by recovering the pubkey from the passkey itself (tier 3).
 
 ### Why three tiers?
 
@@ -115,7 +115,7 @@ keytr's `discoverAndLogin()` and `discoverPasskey()` handle this conversion inte
 
 The pubkey recovered from `userHandle` is used for three things:
 
-1. **Relay lookup**: `fetchKeytrEvents(pubkey, relays)` queries for kind:30079 events authored by this pubkey. This is how discoverable login finds the encrypted blob without any prior state.
+1. **Relay lookup**: `fetchKeytrEvents(pubkey, relays)` queries for kind:31777 events authored by this pubkey. This is how discoverable login finds the encrypted blob without any prior state.
 
 2. **Credential indexing**: After a successful discoverable login, store the pubkey in your credential index so future logins can skip discovery and go straight to a targeted relay query (tier 1).
 
@@ -125,7 +125,7 @@ The pubkey recovered from `userHandle` is used for three things:
 
 ## fetchKeytrEvents: Not Just for keytr's Index
 
-`fetchKeytrEvents(pubkey, relays)` queries relays for kind:30079 events authored by the given pubkey. The pubkey parameter can come from **anywhere** — it's not limited to keytr's own credential index or discoverable flow.
+`fetchKeytrEvents(pubkey, relays)` queries relays for kind:31777 events authored by the given pubkey. The pubkey parameter can come from **anywhere** — it's not limited to keytr's own credential index or discoverable flow.
 
 Common sources for the pubkey:
 
@@ -371,7 +371,7 @@ const signedEvent = await signer.signEvent({ ...eventTemplate, pubkey })
 await publishKeytrEvent(signedEvent, RELAYS)
 ```
 
-This creates a second kind:30079 event with a different `d` tag (different credential ID) and different `rp` tag (`nostkey.org`). If `keytr.org` goes down, the user can still authenticate via `nostkey.org`.
+This creates a second kind:31777 event with a different `d` tag (different credential ID) and different `rp` tag (`nostkey.org`). If `keytr.org` goes down, the user can still authenticate via `nostkey.org`.
 
 ---
 

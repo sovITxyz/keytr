@@ -44,7 +44,7 @@ This NIP uses the WebAuthn **PRF extension** to derive a deterministic encryptio
 │  AES-256-GCM encrypt nsec                                   │
 │       │                                                     │
 │       ▼                                                     │
-│  kind:30079 event ──► publish to relays                     │
+│  kind:31777 event ──► publish to relays                     │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
@@ -59,7 +59,7 @@ This NIP uses the WebAuthn **PRF extension** to derive a deterministic encryptio
 │  Step 2: Targeted assertion (allowCredentials: [credId])    │
 │       └── PRF output  ──► 32 bytes                          │
 │                                                             │
-│  Fetch kind:30079 events for pubkey from relays             │
+│  Fetch kind:31777 events for pubkey from relays             │
 │       │                                                     │
 │       ▼                                                     │
 │  Match event by credential ID (d tag)                       │
@@ -87,7 +87,7 @@ Total: 32 bytes
 
 This is well within the [WebAuthn specification's 64-byte maximum](https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialuserentity-id) for `user.id`. The public key is naturally unique per user, satisfying WebAuthn's uniqueness requirement for `user.id` within a relying party.
 
-The public key is stored in `user.id` to enable **discoverable authentication** — when the user authenticates with `allowCredentials: []`, the authenticator returns the `userHandle` containing the pubkey, allowing the client to fetch the correct kind:30079 event from relays without any prior knowledge of the user's identity.
+The public key is stored in `user.id` to enable **discoverable authentication** — when the user authenticates with `allowCredentials: []`, the authenticator returns the `userHandle` containing the pubkey, allowing the client to fetch the correct kind:31777 event from relays without any prior knowledge of the user's identity.
 
 ### PRF Extension
 
@@ -157,7 +157,7 @@ The random HKDF salt ensures that re-encrypting the same nsec with the same pass
 
 5. Verify that the PRF extension returned output (check `prf.results.first` in the extension results). If PRF output is not available during registration, perform a follow-up assertion against the newly created credential to obtain it — some authenticators (e.g., YubiKey) only return PRF output during authentication, not creation.
 6. Encrypt the nsec using the PRF output (see [Encryption](#encryption)) to produce an encrypted blob.
-7. Build a kind:30079 event containing the encrypted blob (see [Event Format](#event-format)).
+7. Build a kind:31777 event containing the encrypted blob (see [Event Format](#event-format)).
 8. Sign the event with the nsec and publish to Nostr relays.
 9. Zero the PRF output, derived key, and nsec from memory.
 
@@ -206,7 +206,7 @@ This is the primary login flow. No prior knowledge of the user's pubkey or crede
 ```
 
 5. Extract the 32-byte PRF output from `prf.results.first` in the extension results.
-6. Fetch kind:30079 events for the recovered public key from Nostr relays.
+6. Fetch kind:31777 events for the recovered public key from Nostr relays.
 7. Select the event whose `d` tag matches the base64url-encoded credential ID from the authenticator response.
 8. Parse the event and extract the encrypted blob from the `content` field.
 9. Decrypt the nsec using the PRF output (see [Decryption](#decryption)).
@@ -218,7 +218,7 @@ Step 1 uses `allowCredentials: []` to trigger the platform's passkey picker. Ste
 
 When the client already knows the user's pubkey (e.g., from localStorage or URL parameter), it can skip discovery and authenticate directly:
 
-1. Fetch kind:30079 events for the known pubkey from relays.
+1. Fetch kind:31777 events for the known pubkey from relays.
 2. For each event, attempt authentication with the specific credential:
 
 ```javascript
@@ -301,7 +301,7 @@ Implementations MUST reject blobs where:
 
 ### Event Kind
 
-This NIP uses **kind `30079`** (parameterized replaceable event).
+This NIP uses **kind `31777`** (parameterized replaceable event).
 
 Each passkey credential produces a distinct event, identified by the credential ID in the `d` tag. Re-encrypting with the same passkey replaces the previous event.
 
@@ -309,7 +309,7 @@ Each passkey credential produces a distinct event, identified by the credential 
 
 ```json
 {
-  "kind": 30079,
+  "kind": 31777,
   "pubkey": "<user's hex public key>",
   "content": "<base64-encoded encrypted blob (93 bytes → ~124 chars)>",
   "tags": [
@@ -366,7 +366,7 @@ The model is **federated**: there is no single canonical gateway. Multiple indep
 | `nostkey.org` | sovIT | Hostinger | keytr.org, bies.sovit.xyz, gitvid.sovit.xyz, nostrbook.net |
 | `keys.example.org` | Self-hosted | Any | personal-client.example.org |
 
-Users can register passkeys against **multiple gateways**, producing separate kind:30079 events for each. Losing access to one gateway does not affect events encrypted under other rpIds.
+Users can register passkeys against **multiple gateways**, producing separate kind:31777 events for each. Losing access to one gateway does not affect events encrypted under other rpIds.
 
 ### Cross-Gateway Trust
 
@@ -460,7 +460,7 @@ Users SHOULD register multiple passkeys for redundancy. Each passkey:
 - Has its own credential ID
 - Contains the same pubkey in its `user.id`
 - Produces a different PRF output (different credential → different HMAC secret)
-- Produces a separate kind:30079 event with a different `d` tag and different encrypted blob
+- Produces a separate kind:31777 event with a different `d` tag and different encrypted blob
 - Can independently decrypt its corresponding event
 
 To register an additional passkey for an existing identity:
@@ -468,13 +468,13 @@ To register an additional passkey for an existing identity:
 1. Decrypt the nsec using any existing passkey
 2. Register a new passkey with the same pubkey as `user.id`
 3. Encrypt the nsec with the new passkey's PRF output
-4. Publish the new kind:30079 event
+4. Publish the new kind:31777 event
 
 ## Constants
 
 ```
 KEYTR_VERSION    = 1
-KEYTR_EVENT_KIND = 30079
+KEYTR_EVENT_KIND = 31777
 PRF_SALT         = UTF-8("keytr-v1")
 HKDF_INFO        = "keytr nsec encryption v1"
 ```
@@ -487,7 +487,7 @@ The passkey-based key management approach described in this NIP was inspired by 
 
 | NIP | Relation |
 |-----|----------|
-| NIP-01 | Standard event structure used for kind:30079 events |
+| NIP-01 | Standard event structure used for kind:31777 events |
 | NIP-07 | Browser extension signers can integrate NIP-K1 for key import/export |
 | NIP-46 | Alternative approach: NIP-46 delegates signing to a remote signer; NIP-K1 stores keys locally |
 | NIP-49 | Can be used as a complementary backup method (password-encrypted nsec for offline storage) |

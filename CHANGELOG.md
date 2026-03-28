@@ -42,7 +42,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 - `registerPasskey()` and `authenticatePasskey()` for WebAuthn credential management
 - `encryptNsec()` / `decryptNsec()` with AAD binding to credential ID
 - Binary blob serialization (93 bytes: version + IV + HKDF salt + ciphertext)
-- Kind:30079 event building and parsing (`buildKeytrEvent` / `parseKeytrEvent`)
+- Kind:31777 event building and parsing (`buildKeytrEvent` / `parseKeytrEvent`)
 - Relay publish/fetch with multi-relay support and deduplication
 - Nostr key utilities (nsec/npub encoding, key generation, hex conversion)
 - High-level `setupKeytr()` and `loginWithKeytr()` convenience functions

@@ -23,7 +23,7 @@ User Device (nsec)
   AES-256-GCM ──► encrypted blob (93 bytes)
        │
        ▼
-  kind:30079 Nostr event ──► published to relays
+  kind:31777 Nostr event ──► published to relays
 ```
 
 The system has four layers: **crypto**, **webauthn**, **nostr**, and **high-level flows**.
@@ -193,11 +193,11 @@ Source: `src/nostr/keys.ts`
 
 ### Event Format
 
-keytr uses **kind 30079** (parameterized replaceable event):
+keytr uses **kind 31777** (parameterized replaceable event):
 
 ```json
 {
-  "kind": 30079,
+  "kind": 31777,
   "pubkey": "<user's hex public key>",
   "content": "<base64-encoded encrypted blob>",
   "tags": [
@@ -234,7 +234,7 @@ Source: `src/nostr/event.ts`
 ### Relay Operations
 
 - `publishKeytrEvent(signedEvent, relayUrls)` — publishes to all relays in parallel; only throws if ALL relays fail
-- `fetchKeytrEvents(pubkey, relayUrls)` — queries all relays in parallel for kind:30079 events, deduplicates by event ID. Default 5-second timeout per relay.
+- `fetchKeytrEvents(pubkey, relayUrls)` — queries all relays in parallel for kind:31777 events, deduplicates by event ID. Default 5-second timeout per relay.
 
 Source: `src/nostr/relay.ts`
 
@@ -307,7 +307,7 @@ const { nsecBytes, npub, pubkey } = await discoverAndLogin(
 One call, no npub input needed:
 
 1. `discoverPasskey({ rpId })` → browser shows passkey picker → targeted PRF assertion → returns pubkey, PRF output, credential ID
-2. `fetchKeytrEvents(pubkey, relays)` → fetch kind:30079 events for the recovered pubkey
+2. `fetchKeytrEvents(pubkey, relays)` → fetch kind:31777 events for the recovered pubkey
 3. Match the event whose `d` tag equals `base64url(credentialId)`
 4. `decryptNsec({ encryptedBlob, prfOutput, credentialId })` → 32-byte nsec
 5. Zero out PRF output (in `finally` block)
@@ -324,7 +324,7 @@ const events = await fetchKeytrEvents(pubkey, relayUrls)
 const { nsecBytes, npub } = await loginWithKeytr(events)
 ```
 
-Accepts an **array** of kind:30079 events. Tries each event in order until a matching passkey succeeds:
+Accepts an **array** of kind:31777 events. Tries each event in order until a matching passkey succeeds:
 
 1. For each event:
    a. `parseKeytrEvent(event)` → extract credential ID, rpId, blob
@@ -377,7 +377,7 @@ There is no single gateway. Anyone can run one:
 | `passkey.nostr.com` | Community X | nostrudel.ninja, snort.social, ... |
 | `keys.example.org` | Self-hosted | personal-client.example.org |
 
-Users can register passkeys against **multiple gateways**, producing separate kind:30079 events for each. Losing access to one gateway doesn't affect events encrypted under other rpIds.
+Users can register passkeys against **multiple gateways**, producing separate kind:31777 events for each. Losing access to one gateway doesn't affect events encrypted under other rpIds.
 
 ### Cross-Gateway Trust
 
@@ -466,7 +466,7 @@ A native app can bypass the browser layer entirely:
 Browser client:  navigator.credentials.get() → PRF extension  → prfOutput
 Native app:      libfido2 CTAP2 call         → hmac-secret    → same output
                                                                     │
-                                              decrypt kind:30079 event
+                                              decrypt kind:31777 event
 ```
 
 The authenticator doesn't know or care whether `"keytr.org"` resolves in DNS. It matches the rpId hash against stored credentials and returns the same HMAC output regardless of how the request arrived.
@@ -476,7 +476,7 @@ The authenticator doesn't know or care whether `"keytr.org"` resolves in DNS. It
 1. **CTAP2 bindings** — `libfido2` (Yubico's C library) via N-API addon is the most proven path. For Pear/Bare runtime, this would be a native addon.
 2. **Same rpId string** — use `"keytr.org"` (or whichever gateway) as a plain string parameter to the CTAP2 call.
 3. **`hmac-secret` extension** — the CTAP2 wire-level equivalent of WebAuthn's PRF extension. Use the same salt (`"keytr-v1"`) to get byte-identical output.
-4. **Everything else is the same** — the encrypted blob format, kind:30079 event structure, HKDF derivation, and AES-GCM decryption are all platform-agnostic. Only the authenticator communication layer differs.
+4. **Everything else is the same** — the encrypted blob format, kind:31777 event structure, HKDF derivation, and AES-GCM decryption are all platform-agnostic. Only the authenticator communication layer differs.
 
 ### nostr-swarm Integration
 
@@ -487,7 +487,7 @@ The authenticator doesn't know or care whether `"keytr.org"` resolves in DNS. It
 
 For keytr, this means a Pear app can:
 
-1. **Fetch kind:30079 events** directly from the Hyperswarm-replicated event store — no relay URLs, no DNS lookups
+1. **Fetch kind:31777 events** directly from the Hyperswarm-replicated event store — no relay URLs, no DNS lookups
 2. **Authenticate via CTAP2** using `libfido2` with `rpId: "keytr.org"` + `hmac-secret` salt `"keytr-v1"`
 3. **Decrypt the nsec** using the same blob format and crypto as browser clients
 4. **Publish new events** (backup passkey registrations, re-encryptions) back to the swarm
@@ -497,7 +497,7 @@ The entire flow is DNS-free and server-free. Peers discover each other via DHT (
 ```
 Pear app
   │
-  ├── nostr-swarm (Hyperswarm) ── fetch/publish kind:30079 events
+  ├── nostr-swarm (Hyperswarm) ── fetch/publish kind:31777 events
   │
   └── libfido2 (CTAP2) ── hmac-secret with rpId:"keytr.org"
         │
@@ -513,7 +513,7 @@ Pear app
 | rpId validation | Browser enforces DNS + origin | App passes string directly |
 | Related Origins | `.well-known/webauthn` fetch | Not needed (no origin check) |
 | Relay access | WebSocket to relay URLs | Hyperswarm direct or WebSocket |
-| Event format | kind:30079 | kind:30079 (identical) |
+| Event format | kind:31777 | kind:31777 (identical) |
 | Crypto | Same (HKDF + AES-256-GCM) | Same |
 
 ### Security Considerations for Native Clients
@@ -548,7 +548,7 @@ The code exists in `src/fallback/password.ts` (scrypt + AES-256-GCM, NIP-49 comp
 
 ### The Problem
 
-The passkey provides the **decryption key** (PRF output), but the **encrypted payload** (kind:30079 event) lives entirely on Nostr relays. If all relays purge the event, the user has a key with nothing to unlock — login fails permanently.
+The passkey provides the **decryption key** (PRF output), but the **encrypted payload** (kind:31777 event) lives entirely on Nostr relays. If all relays purge the event, the user has a key with nothing to unlock — login fails permanently.
 
 The encrypted event is **safe to store anywhere**. An attacker who obtains it cannot decrypt without the passkey's PRF output, which requires physical access to the authenticator plus biometric/PIN. This means backup options are wide open without compromising security.
 
@@ -572,14 +572,14 @@ This is the first line of defense but not a guarantee. Relays can purge data, go
 
 ### Multi-Gateway Registration (Existing)
 
-`addBackupGateway()` registers the same nsec under a different gateway (e.g., `nostkey.org` if primary is `keytr.org`). Each gateway produces a separate kind:30079 event with its own credential ID and rpId. If one gateway's domain becomes unreachable (breaking Related Origin Requests), events encrypted under the other gateway's rpId still work.
+`addBackupGateway()` registers the same nsec under a different gateway (e.g., `nostkey.org` if primary is `keytr.org`). Each gateway produces a separate kind:31777 event with its own credential ID and rpId. If one gateway's domain becomes unreachable (breaking Related Origin Requests), events encrypted under the other gateway's rpId still work.
 
 ### Client-Side Event Cache (Recommended for Clients)
 
-Clients should cache the kind:30079 event(s) in `localStorage` or `IndexedDB` after every successful login or registration. On subsequent logins, check the local cache **before** querying relays:
+Clients should cache the kind:31777 event(s) in `localStorage` or `IndexedDB` after every successful login or registration. On subsequent logins, check the local cache **before** querying relays:
 
 ```
-1. Check localStorage/IndexedDB for cached kind:30079 events
+1. Check localStorage/IndexedDB for cached kind:31777 events
 2. If found → attempt decryption with passkey
 3. If not found or decryption fails → fetch from relays
 4. After successful relay fetch → update local cache
@@ -589,7 +589,7 @@ This handles the "relay purge" case transparently for returning users on the sam
 
 ### Event Export (Recommended for Clients)
 
-Clients should offer an export function that lets users save their signed kind:30079 event(s) as a portable backup. The signed event is ~500–800 bytes of JSON — small enough for:
+Clients should offer an export function that lets users save their signed kind:31777 event(s) as a portable backup. The signed event is ~500–800 bytes of JSON — small enough for:
 
 - **JSON file** — save to disk, cloud drive, or USB
 - **QR code** — print or screenshot for offline storage
@@ -603,7 +603,7 @@ The export contains no secrets — just the signed Nostr event with the already-
 
 ### HTTP Fallback (Optional for Gateway Operators)
 
-Gateway operators can serve kind:30079 events at a well-known HTTP endpoint as a last resort when relays are unavailable:
+Gateway operators can serve kind:31777 events at a well-known HTTP endpoint as a last resort when relays are unavailable:
 
 ```
 GET https://keytr.org/.well-known/nostr/k1/<hex-pubkey>
@@ -615,7 +615,7 @@ This is **not a replacement for relays** — it's a fallback for the case where 
 
 ### WebAuthn largeBlob (Roadmap)
 
-The WebAuthn `largeBlob` extension allows storing auxiliary data (up to ~1KB) directly inside a passkey credential. In theory, the signed kind:30079 event could be stored in the passkey itself — making the passkey fully self-contained for recovery (both the decryption key AND the encrypted payload in one place).
+The WebAuthn `largeBlob` extension allows storing auxiliary data (up to ~1KB) directly inside a passkey credential. In theory, the signed kind:31777 event could be stored in the passkey itself — making the passkey fully self-contained for recovery (both the decryption key AND the encrypted payload in one place).
 
 This is the ideal end-state for backup: a single passkey that carries everything needed for recovery with zero external dependencies. However, **largeBlob support is too fragmented today to rely on**:
 
@@ -644,7 +644,7 @@ For comparison, PRF (which keytr depends on for core functionality) has much bro
 **Roadmap**: When largeBlob adoption reaches critical mass (particularly Google Password Manager and Windows Hello), keytr should add optional largeBlob write during registration and largeBlob read as a fallback during login. The implementation would:
 
 1. At registration: detect `largeBlob` support via `getClientExtensionResults()`
-2. If supported: write the signed kind:30079 event JSON into the credential's largeBlob
+2. If supported: write the signed kind:31777 event JSON into the credential's largeBlob
 3. At login: if relay fetch returns no events, attempt `largeBlob` read before giving up
 4. Never depend on it — treat as an opportunistic bonus layer
 
@@ -746,7 +746,7 @@ Source: `src/errors.ts`
 
 ```
 KEYTR_VERSION    = 1
-KEYTR_EVENT_KIND = 30079
+KEYTR_EVENT_KIND = 31777
 PRF_SALT         = UTF-8("keytr-v1")
 HKDF_INFO        = "keytr nsec encryption v1"
 DEFAULT_RP_ID    = "keytr.org"
@@ -790,7 +790,7 @@ src/
 │   └── support.ts        — checkPrfSupport()
 ├── nostr/
 │   ├── keys.ts           — nsec/npub encode/decode
-│   ├── event.ts          — build/parse kind:30079
+│   ├── event.ts          — build/parse kind:31777
 │   └── relay.ts          — publish/fetch events
 └── fallback/
     └── password.ts       — disabled password encryption
@@ -846,8 +846,8 @@ encodeNsec(bytes) / decodeNsec(s)  // Bech32 nsec
 encodeNpub(bytes) / decodeNpub(s)  // Bech32 npub
 nsecToNpub(bytes)                  // Shortcut
 nsecToHexPubkey(bytes)             // Hex public key
-buildKeytrEvent(options)           // Build kind:30079
-parseKeytrEvent(event)             // Parse kind:30079
+buildKeytrEvent(options)           // Build kind:31777
+parseKeytrEvent(event)             // Parse kind:31777
 publishKeytrEvent(event, relays)   // Publish to relays
 fetchKeytrEvents(pubkey, relays)   // Fetch from relays
 ```
