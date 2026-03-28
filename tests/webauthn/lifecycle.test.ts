@@ -219,6 +219,100 @@ describe('WebAuthn credential lifecycle', () => {
     ).rejects.toThrow('PRF output not available')
   })
 
+  it('discoverPasskey uses two-step flow: discovery then targeted PRF', async () => {
+    const prfOutput = makePrfOutput()
+    const credRawId = randomBytes(16)
+    const userHandle = randomBytes(32) // simulates stored pubkey
+
+    let callCount = 0
+    const getMock = vi.fn().mockImplementation(() => {
+      callCount++
+      if (callCount === 1) {
+        // Step 1: Discovery — no PRF output, returns userHandle + rawId
+        return Promise.resolve({
+          type: 'public-key',
+          rawId: credRawId.buffer.slice(0),
+          response: {
+            userHandle: userHandle.buffer.slice(0),
+          },
+          getClientExtensionResults: () => ({}),
+        })
+      }
+      // Step 2: Targeted assertion — returns PRF output
+      return Promise.resolve({
+        type: 'public-key',
+        rawId: credRawId.buffer.slice(0),
+        response: {},
+        getClientExtensionResults: () => ({
+          prf: { results: { first: prfOutput.buffer.slice(0) } },
+        }),
+      })
+    })
+
+    setupGlobals({ get: getMock })
+
+    const { discoverPasskey } = await import('../../src/webauthn/authenticate.js')
+    const result = await discoverPasskey()
+
+    expect(getMock).toHaveBeenCalledTimes(2)
+
+    // Step 1 should NOT have PRF extensions or allowCredentials entries
+    const step1 = getMock.mock.calls[0][0] as CredentialRequestOptions
+    expect(step1.publicKey?.allowCredentials).toEqual([])
+    expect((step1.publicKey as any)?.extensions?.prf).toBeUndefined()
+
+    // Step 2 should have the discovered credentialId and PRF extension
+    const step2 = getMock.mock.calls[1][0] as CredentialRequestOptions
+    expect(step2.publicKey?.allowCredentials?.length).toBe(1)
+    expect(new Uint8Array(step2.publicKey!.allowCredentials![0].id as ArrayBuffer))
+      .toEqual(credRawId)
+    expect((step2.publicKey as any)?.extensions?.prf).toBeDefined()
+
+    expect(result.pubkey).toBe(bytesToHex(userHandle))
+    expect(result.prfOutput).toEqual(prfOutput)
+    expect(result.credentialId).toEqual(credRawId)
+  })
+
+  it('discoverPasskey throws PrfNotSupportedError when step 2 returns no PRF', async () => {
+    const credRawId = randomBytes(16)
+    const userHandle = randomBytes(32)
+
+    let callCount = 0
+    const getMock = vi.fn().mockImplementation(() => {
+      callCount++
+      return Promise.resolve({
+        type: 'public-key',
+        rawId: credRawId.buffer.slice(0),
+        response: callCount === 1
+          ? { userHandle: userHandle.buffer.slice(0) }
+          : {},
+        getClientExtensionResults: () => ({}), // no PRF in either step
+      })
+    })
+
+    setupGlobals({ get: getMock })
+
+    const { discoverPasskey } = await import('../../src/webauthn/authenticate.js')
+
+    await expect(discoverPasskey()).rejects.toThrow('PRF output not available')
+    expect(getMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('discoverPasskey throws WebAuthnError when userHandle is empty', async () => {
+    setupGlobals({
+      get: vi.fn().mockResolvedValue({
+        type: 'public-key',
+        rawId: randomBytes(16).buffer.slice(0),
+        response: { userHandle: new ArrayBuffer(0) },
+        getClientExtensionResults: () => ({}),
+      }),
+    })
+
+    const { discoverPasskey } = await import('../../src/webauthn/authenticate.js')
+
+    await expect(discoverPasskey()).rejects.toThrow('userHandle')
+  })
+
   it('full register → encrypt → authenticate → decrypt roundtrip', async () => {
     const prfOutput = makePrfOutput()
 
