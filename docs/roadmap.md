@@ -80,141 +80,24 @@ Simple HTTP GET, no Nostr protocol. Clients try this after relay fetch fails. Re
 
 ---
 
-## Future Direction: NIP-K2 — Passseeds
+## Exploratory: NIP-K2 — Passseeds
 
-NIP-K2 introduces **passseeds** — deterministic key derivation from passkeys. Instead of encrypting an existing nsec, the passkey PRF output IS the seed that derives the nsec. No relay needed for key material.
+A draft spec exists at `nip/nip-k2.md` exploring **passseeds** — deterministic key derivation from passkeys. Instead of encrypting an existing nsec, the passkey PRF output would be the seed that derives the nsec. No relay needed for key material.
 
-### Why K2
+This is a potential direction we may explore in the future, not a planned feature. The draft spec is retained for reference only.
 
-K1 works well for users who already have a Nostr identity or need relay-backed recovery. But for onboarding new users, K1 has unnecessary friction:
+### Concept
 
-1. Generate random nsec → why? The user doesn't care about the raw key
-2. Encrypt and publish to relays → extra infrastructure dependency
-3. Fetch on login → requires relay availability
+K1 works well for users who already have a Nostr identity or need relay-backed recovery. K2 could simplify onboarding for new users by removing the need to generate, encrypt, and publish an nsec — register a passkey, derive an identity, done.
 
-K2 eliminates all of this. Register a passkey, derive an identity, done. The relay becomes optional — only needed for social features, not for key recovery.
+### Open Questions
 
-### Implementation Path
+Many fundamental design decisions remain unresolved:
 
-#### Phase 1: Core Derivation
+- Should new users default to K2 or K1?
+- Should K2 auto-create a K1 backup event (adding relay dependency)?
+- Should marker events be published (metadata leak vs cross-client discovery)?
+- How should clients handle users with both K1 and K2 credentials?
+- Naming: the public API naming should communicate "your passkey becomes your key" without jargon
 
-Add the passseed derivation layer alongside the existing K1 crypto:
-
-```
-src/crypto/
-  ├── kdf.ts           # existing K1 key derivation
-  ├── encrypt.ts       # existing K1 encryption
-  ├── decrypt.ts       # existing K1 decryption
-  ├── blob.ts          # existing K1 blob serialization
-  └── passseed.ts      # NEW: HKDF derivation from PRF → nsec
-```
-
-New constants in types.ts:
-
-```typescript
-export const PASSSEED_VERSION = 1
-export const PASSSEED_EVENT_KIND = 30080
-export const PASSSEED_PRF_SALT = new TextEncoder().encode('keytr-seed-v1')
-export const PASSSEED_HKDF_SALT = new TextEncoder().encode('passseed-v1')
-export const PASSSEED_HKDF_INFO = 'keytr passseed v1'
-```
-
-Core function:
-
-```typescript
-function deriveNsec(prfOutput: Uint8Array): Uint8Array {
-  return hkdf(sha256, prfOutput, PASSSEED_HKDF_SALT, PASSSEED_HKDF_INFO, 32)
-}
-```
-
-#### Phase 2: WebAuthn Integration
-
-Add K2-specific registration and discovery:
-
-```
-src/webauthn/
-  ├── register.ts       # update: K2 registration with marker user.id
-  ├── authenticate.ts   # update: K2 discoverable flow
-  └── prf.ts            # update: K2 PRF salt builders
-```
-
-Key changes:
-- `registerPassseed()` — creates credential with fixed `PASSSEED_USER_ID` marker as `user.id` and K2 PRF salt
-- `discoverPasskey()` — routes to K1 or K2 based on returned `userHandle`
-
-#### Phase 3: High-Level Flows
-
-New public API functions in index.ts:
-
-```typescript
-// K2: Register passkey + derive identity (no relay needed)
-setupPassseed(options: PassseedSetupOptions): Promise<PassseedResult>
-
-// K2: Discoverable login — derive nsec from PRF
-discoverAndLoginPassseed(options: PassseedLoginOptions): Promise<LoginResult>
-
-// Dual: Discoverable login that auto-routes K1 or K2
-discoverAndLoginAuto(options: AutoLoginOptions): Promise<LoginResult>
-
-// Hybrid: Derive via K2, then encrypt via K1 as backup
-setupPassseedWithBackup(options: HybridSetupOptions): Promise<HybridResult>
-```
-
-#### Phase 4: Marker Events
-
-Optional kind:30080 events for cross-client discovery:
-
-```
-src/nostr/
-  ├── event.ts          # update: buildPassseedMarker(), parsePassseedMarker()
-  └── relay.ts          # update: publish/fetch kind:30080
-```
-
-### What Doesn't Change
-
-- NIP-K1 stays fully supported — K2 is additive, not a replacement
-- Existing kind:30079 events remain valid indefinitely
-- Same gateway infrastructure (keytr.org, nostkey.org)
-- Same authenticator compatibility (PRF is the shared requirement)
-- Same @noble/hashes HKDF — just different salt/info constants
-
-### Decision Points
-
-These are open questions to resolve before implementation:
-
-**1. Default for new users**
-Should `setupKeytr()` default to K2 (passseed) for new users and K1 for import? Or keep K1 as default with K2 opt-in?
-
-**2. Auto-backup**
-Should `setupPassseed()` automatically create a K1 backup event? This adds relay dependency but protects against credential loss. Could be a recommended default that users can opt out of.
-
-**3. Marker event publishing**
-Should marker events be published by default? They reveal that a pubkey was created via passseed (metadata leak). But without them, other clients can't offer passseed login hints.
-
-**4. Naming**
-Public API naming: `setupPassseed()` vs `setupKeytrSeed()` vs `deriveIdentity()`. The name should communicate "your passkey becomes your key" without jargon.
-
-**5. Multi-credential UX**
-When a user has both K1 and K2 credentials, the passkey picker shows both. How should the client present this? Should it label them differently? The `user.name` field could include a suffix like "(passseed)" vs "(encrypted)".
-
-### Compatibility Matrix
-
-Both K1 and K2 require PRF. The authenticator support is identical:
-
-| Authenticator | PRF | K1 | K2 | Notes |
-|---|---|---|---|---|
-| iCloud Keychain | Yes | Yes | Yes | Full sync across Apple devices |
-| Google Password Manager | Yes | Yes | Yes | Full sync across Android/Chrome |
-| Windows Hello | Yes | Yes | Yes | Device-bound, no sync |
-| YubiKey 5 | Yes* | Yes | Yes | 25 resident key slots, PRF on assertion only |
-| Bitwarden / 1Password / Dashlane | No | No | No | No PRF support, intercept WebAuthn |
-
-### Timeline Considerations
-
-K2 is a protocol-level addition. Before implementation:
-
-1. **Finalize NIP-K2 spec** — the draft is at `nip/nip-k2.md`
-2. **Community review** — get feedback on the marker event format, user.id marker approach, and K1/K2 coexistence
-3. **Prototype** — build `deriveNsec()` + passseed registration in a branch
-4. **Test cross-platform** — verify PRF salt independence (K1 salt vs K2 salt produce different outputs on same credential)
-5. **Ship behind feature flag** — add K2 to the library as opt-in before making it a default flow
+NIP-K1 is the focus. K2 would only be considered after K1 is mature and battle-tested.
