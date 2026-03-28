@@ -272,11 +272,12 @@ const bundle = await addBackupGateway(nsecBytes, {
 
 Internally:
 
-1. `registerPasskey(options)` → credential + PRF output (triggers biometric)
-2. `encryptNsec({ nsecBytes, prfOutput, credentialId })` → base64 blob
-3. Zero out PRF output (in `finally` block)
-4. `buildKeytrEvent({ credential, encryptedBlob })` → unsigned event template
-5. Return the bundle
+1. `nsecToHexPubkey(nsecBytes)` → hex pubkey
+2. `registerPasskey({ ...options, pubkey })` → credential + PRF output (triggers biometric)
+3. `encryptNsec({ nsecBytes, prfOutput, credentialId })` → base64 blob
+4. Zero out PRF output (in `finally` block)
+5. `buildKeytrEvent({ credential, encryptedBlob })` → unsigned event template
+6. Return the bundle
 
 This is a separate action from setup — the user opts in when they want resilience against a gateway going down.
 
@@ -378,7 +379,8 @@ The two official gateways — `keytr.org` (Cloudflare Pages) and `nostkey.org` (
     "https://nostkey.org",
     "https://bies.sovit.xyz",
     "https://gitvid.sovit.xyz",
-    "https://nostrbook.net"
+    "https://nostrbook.net",
+    "https://sovit.xyz"
   ]
 }
 ```
@@ -391,7 +393,8 @@ The two official gateways — `keytr.org` (Cloudflare Pages) and `nostkey.org` (
     "https://keytr.org",
     "https://bies.sovit.xyz",
     "https://gitvid.sovit.xyz",
-    "https://nostrbook.net"
+    "https://nostrbook.net",
+    "https://sovit.xyz"
   ]
 }
 ```
@@ -620,7 +623,7 @@ Browser support:
 |---|---|---|
 | Chrome | Yes | Depends on authenticator support |
 | Safari 17+ | Yes | Only with iCloud Keychain |
-| Firefox | Unclear | PRF support added in 148+, largeBlob not confirmed |
+| Firefox | Unclear | PRF support added in 122+, largeBlob not confirmed |
 
 Google Password Manager and Windows Hello together represent the majority of passkey users on Android and Windows. Excluding them makes largeBlob unviable as a primary or even secondary backup strategy.
 

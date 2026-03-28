@@ -44,7 +44,7 @@ The ideal end-state: store the signed kind:30079 event inside the passkey itself
 |---|---|---|
 | Chrome | Yes | Depends on authenticator support |
 | Safari 17+ | Yes | Only with iCloud Keychain |
-| Firefox | Unclear | PRF support added in 148+, largeBlob not confirmed |
+| Firefox | Unclear | PRF support added in 122+, largeBlob not confirmed |
 
 Google Password Manager + Windows Hello = majority of passkey users. Until they add largeBlob, this can't be a relied-upon layer.
 
