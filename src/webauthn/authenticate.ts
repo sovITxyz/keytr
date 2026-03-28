@@ -1,4 +1,4 @@
-import { bytesToHex } from '@noble/hashes/utils'
+import { bytesToHex } from '@noble/hashes/utils.js'
 import type { AuthenticateOptions, DiscoverOptions, DiscoverResult } from '../types.js'
 import { DEFAULT_RP_ID } from '../types.js'
 import { WebAuthnError, PrfNotSupportedError } from '../errors.js'

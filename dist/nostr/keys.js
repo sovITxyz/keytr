@@ -1,6 +1,6 @@
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { bech32 } from '@scure/base';
-import { hexToBytes } from '@noble/hashes/utils';
+import { hexToBytes } from '@noble/hashes/utils.js';
 const NSEC_PREFIX = 'nsec';
 const NPUB_PREFIX = 'npub';
 /** Generate a random 32-byte Nostr private key */

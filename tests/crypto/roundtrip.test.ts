@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { encryptNsec } from '../../src/crypto/encrypt.js'
 import { decryptNsec } from '../../src/crypto/decrypt.js'
-import { randomBytes } from '@noble/hashes/utils'
+import { randomBytes } from '@noble/hashes/utils.js'
 
 describe('encrypt/decrypt roundtrip', () => {
   it('encrypts and decrypts correctly', () => {
