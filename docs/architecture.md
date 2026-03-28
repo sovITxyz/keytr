@@ -381,7 +381,7 @@ Users can register passkeys against **multiple gateways**, producing separate ki
 
 ### Cross-Gateway Trust
 
-The two official gateways — `keytr.org` (Cloudflare Pages) and `nostkey.org` (GitHub Pages) — trust each other via bidirectional Related Origin Requests. Each gateway's `/.well-known/webauthn` lists the other as an authorized origin:
+The two official gateways — `keytr.org` (Cloudflare Pages) and `nostkey.org` (Hostinger) — trust each other via bidirectional Related Origin Requests. Each gateway's `/.well-known/webauthn` lists the other as an authorized origin:
 
 ```json
 // https://keytr.org/.well-known/webauthn
