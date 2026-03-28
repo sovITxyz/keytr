@@ -20,12 +20,12 @@ export function buildKeytrEvent(options: BuildEventOptions): KeytrEventTemplate 
     ['v', '1'],
   ]
 
-  if (clientName) {
-    tags.push(['client', clientName])
-  }
-
   if (credential.transports.length > 0) {
     tags.push(['transports', ...credential.transports])
+  }
+
+  if (clientName) {
+    tags.push(['client', clientName])
   }
 
   return {
