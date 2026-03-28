@@ -529,6 +529,132 @@ The code exists in `src/fallback/password.ts` (scrypt + AES-256-GCM, NIP-49 comp
 
 ---
 
+## Backup & Resilience
+
+### The Problem
+
+The passkey provides the **decryption key** (PRF output), but the **encrypted payload** (kind:30079 event) lives entirely on Nostr relays. If all relays purge the event, the user has a key with nothing to unlock — login fails permanently.
+
+The encrypted event is **safe to store anywhere**. An attacker who obtains it cannot decrypt without the passkey's PRF output, which requires physical access to the authenticator plus biometric/PIN. This means backup options are wide open without compromising security.
+
+### Backup Layers
+
+Resilience comes from layering multiple independent backup strategies. No single layer is sufficient on its own.
+
+| Layer | Where | User action | Protects against |
+|-------|-------|-------------|------------------|
+| Relay redundancy | Multiple Nostr relays | None (automatic) | Single relay failure |
+| Multi-gateway | Separate rpId events | One biometric prompt per gateway | Gateway domain loss |
+| Client-side cache | localStorage / IndexedDB | None (automatic) | Relay purge (same device) |
+| Event export | JSON file or QR code | User saves file | Relay purge (any device) |
+| HTTP fallback | Gateway well-known endpoint | None (automatic) | Complete relay network failure |
+
+### Relay Redundancy (Existing)
+
+`publishKeytrEvent()` already publishes to multiple relays in parallel. Only throws if **all** relays fail — partial success is acceptable. Clients should publish to at least 3–5 relays and fetch from all known relays during login.
+
+This is the first line of defense but not a guarantee. Relays can purge data, go offline, or reject parameterized replaceable events they don't understand.
+
+### Multi-Gateway Registration (Existing)
+
+`addBackupGateway()` registers the same nsec under a different gateway (e.g., `nostkey.org` if primary is `keytr.org`). Each gateway produces a separate kind:30079 event with its own credential ID and rpId. If one gateway's domain becomes unreachable (breaking Related Origin Requests), events encrypted under the other gateway's rpId still work.
+
+### Client-Side Event Cache (Recommended for Clients)
+
+Clients should cache the kind:30079 event(s) in `localStorage` or `IndexedDB` after every successful login or registration. On subsequent logins, check the local cache **before** querying relays:
+
+```
+1. Check localStorage/IndexedDB for cached kind:30079 events
+2. If found → attempt decryption with passkey
+3. If not found or decryption fails → fetch from relays
+4. After successful relay fetch → update local cache
+```
+
+This handles the "relay purge" case transparently for returning users on the same device with zero user action. The cached event is just the signed Nostr event JSON — safe to store unencrypted since the content is already AES-256-GCM encrypted.
+
+### Event Export (Recommended for Clients)
+
+Clients should offer an export function that lets users save their signed kind:30079 event(s) as a portable backup. The signed event is ~500–800 bytes of JSON — small enough for:
+
+- **JSON file** — save to disk, cloud drive, or USB
+- **QR code** — print or screenshot for offline storage
+- **Copy/paste** — store in a notes app or secure vault
+
+On recovery, the client imports the event JSON and either:
+1. Decrypts directly using the passkey (no relay needed), or
+2. Re-publishes to relays and proceeds with normal login
+
+The export contains no secrets — just the signed Nostr event with the already-encrypted blob. An attacker with the export file and without the passkey gets nothing.
+
+### HTTP Fallback (Optional for Gateway Operators)
+
+Gateway operators can serve kind:30079 events at a well-known HTTP endpoint as a last resort when relays are unavailable:
+
+```
+GET https://keytr.org/.well-known/nostr/k1/<hex-pubkey>
+```
+
+This is a simple GET request — no Nostr protocol, no WebSocket, no subscription. Clients that fail to find events on relays can try this endpoint before giving up.
+
+This is **not a replacement for relays** — it's a fallback for the case where the entire relay network fails or purges K1 events. The gateway serves the same signed Nostr events that would be on relays, so the client's decryption flow is identical.
+
+### WebAuthn largeBlob (Roadmap)
+
+The WebAuthn `largeBlob` extension allows storing auxiliary data (up to ~1KB) directly inside a passkey credential. In theory, the signed kind:30079 event could be stored in the passkey itself — making the passkey fully self-contained for recovery (both the decryption key AND the encrypted payload in one place).
+
+This is the ideal end-state for backup: a single passkey that carries everything needed for recovery with zero external dependencies. However, **largeBlob support is too fragmented today to rely on**:
+
+| Authenticator | largeBlob support | Notes |
+|---|---|---|
+| YubiKey 5 (firmware 5.7+) | Yes | CTAP 2.1, max 4096 bytes |
+| iCloud Keychain | Yes | Since iOS 17 / macOS Sonoma / Safari 17 |
+| Google Password Manager | **No** | Supports PRF but not largeBlob |
+| Windows Hello | **No** | No credential management or largeBlob |
+| 1Password | **No** | No largeBlob support |
+| Bitwarden | **No** | No largeBlob support |
+| Dashlane | **No** | No largeBlob support |
+
+Browser support:
+
+| Browser | largeBlob support | Notes |
+|---|---|---|
+| Chrome | Yes | Depends on authenticator support |
+| Safari 17+ | Yes | Only with iCloud Keychain |
+| Firefox | Unclear | PRF support added in 148+, largeBlob not confirmed |
+
+Google Password Manager and Windows Hello together represent the majority of passkey users on Android and Windows. Excluding them makes largeBlob unviable as a primary or even secondary backup strategy.
+
+For comparison, PRF (which keytr depends on for core functionality) has much broader support — Google Password Manager, iCloud Keychain, Windows Hello (11 25H2+), and YubiKey all support it. The backup strategy should not introduce a stricter compatibility requirement than the core login flow.
+
+**Roadmap**: When largeBlob adoption reaches critical mass (particularly Google Password Manager and Windows Hello), keytr should add optional largeBlob write during registration and largeBlob read as a fallback during login. The implementation would:
+
+1. At registration: detect `largeBlob` support via `getClientExtensionResults()`
+2. If supported: write the signed kind:30079 event JSON into the credential's largeBlob
+3. At login: if relay fetch returns no events, attempt `largeBlob` read before giving up
+4. Never depend on it — treat as an opportunistic bonus layer
+
+Until then, clients should rely on the other backup layers described above.
+
+### Recommended Client Implementation
+
+Clients integrating keytr should implement backup in this priority order:
+
+1. **Always**: Publish to multiple relays (already handled by `publishKeytrEvent()`)
+2. **Always**: Cache events locally after successful login/registration
+3. **Recommended**: Offer event export (JSON download or QR code)
+4. **Optional**: Prompt users to register a backup gateway via `addBackupGateway()`
+5. **Optional**: If gateway operator, serve events at a well-known HTTP endpoint
+
+### What keytr Does NOT Do
+
+keytr deliberately avoids these backup approaches:
+
+- **No plaintext nsec export** — exporting the raw nsec defeats the purpose of passkey-based key management. Users who want raw nsec access should use a different tool.
+- **No seed phrase / mnemonic** — the passkey (via iCloud Keychain, Google Password Manager, etc.) IS the portable secret. Adding a mnemonic creates a parallel recovery path with weaker security properties.
+- **No server-side key escrow** — the nsec never leaves the client unencrypted. Gateways and relays only see ciphertext.
+
+---
+
 ## Known Issues
 
 ### Password Manager Extensions Intercepting WebAuthn
