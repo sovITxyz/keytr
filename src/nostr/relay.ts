@@ -9,6 +9,15 @@ export interface RelayOptions {
   timeout?: number
 }
 
+async function connectWithTimeout(url: string, timeout: number): Promise<Relay> {
+  return Promise.race([
+    Relay.connect(url),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Connect to ${url} timed out`)), timeout)
+    ),
+  ])
+}
+
 /** Publish a signed keytr event to one or more relays */
 export async function publishKeytrEvent(
   event: Event,
@@ -16,11 +25,10 @@ export async function publishKeytrEvent(
   options?: RelayOptions
 ): Promise<void> {
   const timeout = options?.timeout ?? 5000
-  const errors: string[] = []
 
-  for (const url of relayUrls) {
-    try {
-      const relay = await Relay.connect(url)
+  const results = await Promise.allSettled(
+    relayUrls.map(async (url) => {
+      const relay = await connectWithTimeout(url, timeout)
       try {
         await Promise.race([
           relay.publish(event),
@@ -31,10 +39,12 @@ export async function publishKeytrEvent(
       } finally {
         relay.close()
       }
-    } catch (err) {
-      errors.push(`${url}: ${(err as Error).message}`)
-    }
-  }
+    })
+  )
+
+  const errors = results
+    .map((r, i) => (r.status === 'rejected' ? `${relayUrls[i]}: ${r.reason.message}` : null))
+    .filter((e): e is string => e !== null)
 
   if (errors.length === relayUrls.length) {
     throw new RelayError(`Failed to publish to any relay:\n${errors.join('\n')}`)
@@ -48,14 +58,12 @@ export async function fetchKeytrEvents(
   options?: RelayOptions
 ): Promise<Event[]> {
   const timeout = options?.timeout ?? 5000
-  const events: Event[] = []
-  const seen = new Set<string>()
 
-  for (const url of relayUrls) {
-    try {
-      const relay = await Relay.connect(url)
+  const results = await Promise.allSettled(
+    relayUrls.map(async (url) => {
+      const relay = await connectWithTimeout(url, timeout)
       try {
-        const fetched = await new Promise<Event[]>((resolve) => {
+        return await new Promise<Event[]>((resolve) => {
           const collected: Event[] = []
           const sub = relay.subscribe(
             [{ kinds: [KEYTR_EVENT_KIND], authors: [pubkey] }],
@@ -74,18 +82,22 @@ export async function fetchKeytrEvents(
             resolve(collected)
           }, timeout)
         })
-
-        for (const event of fetched) {
-          if (!seen.has(event.id)) {
-            seen.add(event.id)
-            events.push(event)
-          }
-        }
       } finally {
         relay.close()
       }
-    } catch {
-      // Skip failing relays, try others
+    })
+  )
+
+  const seen = new Set<string>()
+  const events: Event[] = []
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      for (const event of result.value) {
+        if (!seen.has(event.id)) {
+          seen.add(event.id)
+          events.push(event)
+        }
+      }
     }
   }
 

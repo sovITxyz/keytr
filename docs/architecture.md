@@ -221,8 +221,8 @@ Source: `src/nostr/event.ts`
 
 ### Relay Operations
 
-- `publishKeytrEvent(signedEvent, relayUrls)` — publishes to each relay sequentially; only throws if ALL relays fail
-- `fetchKeytrEvents(pubkey, relayUrls)` — subscribes to kind:30079 events for a pubkey across relays with a 5-second timeout, deduplicates by event ID
+- `publishKeytrEvent(signedEvent, relayUrls)` — publishes to all relays in parallel; only throws if ALL relays fail
+- `fetchKeytrEvents(pubkey, relayUrls)` — queries all relays in parallel for kind:30079 events, deduplicates by event ID. Default 5-second timeout per relay.
 
 Source: `src/nostr/relay.ts`
 
