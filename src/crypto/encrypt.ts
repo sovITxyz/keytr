@@ -1,5 +1,5 @@
-import { gcm } from '@noble/ciphers/aes'
-import { randomBytes } from '@noble/hashes/utils'
+import { gcm } from '@noble/ciphers/aes.js'
+import { randomBytes } from '@noble/hashes/utils.js'
 import { base64 } from '@scure/base'
 import { KEYTR_VERSION, type EncryptOptions } from '../types.js'
 import { EncryptionError } from '../errors.js'

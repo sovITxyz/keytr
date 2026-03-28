@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { encryptNsecWithPassword, decryptNsecFromPassword } from '../../src/fallback/password.js'
-import { randomBytes } from '@noble/hashes/utils'
+import { randomBytes } from '@noble/hashes/utils.js'
 
 const FAST_SCRYPT = { N: 1024, r: 8, p: 1 }
 
