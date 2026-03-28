@@ -1,4 +1,6 @@
-import type { AuthenticateOptions } from '../types.js'
+import { bytesToHex } from '@noble/hashes/utils'
+import type { AuthenticateOptions, DiscoverOptions, DiscoverResult } from '../types.js'
+import { DEFAULT_RP_ID } from '../types.js'
 import { WebAuthnError, PrfNotSupportedError } from '../errors.js'
 import { prfAuthenticationExtension, extractPrfOutput } from './prf.js'
 
@@ -51,4 +53,60 @@ export async function authenticatePasskey(
   }
 
   return prfOutput
+}
+
+/**
+ * Discoverable passkey authentication — no prior pubkey or credential ID needed.
+ *
+ * The browser shows all resident keys for this rpId and the user picks one.
+ * The pubkey is recovered from WebAuthn userHandle (set during registration).
+ *
+ * @returns The recovered pubkey, PRF output, and credential ID
+ */
+export async function discoverPasskey(
+  options?: DiscoverOptions
+): Promise<DiscoverResult> {
+  const rpId = options?.rpId ?? DEFAULT_RP_ID
+
+  const getOptions: CredentialRequestOptions = {
+    publicKey: {
+      rpId,
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: [],
+      userVerification: 'required',
+      timeout: options?.timeout ?? 120000,
+      extensions: prfAuthenticationExtension(),
+    },
+  }
+
+  let assertion: PublicKeyCredential
+  try {
+    const result = await navigator.credentials.get(getOptions)
+    if (!result) throw new WebAuthnError('Discoverable authentication returned null')
+    assertion = result as PublicKeyCredential
+  } catch (err) {
+    if (err instanceof WebAuthnError) throw err
+    throw new WebAuthnError(`Discoverable passkey authentication failed: ${(err as Error).message}`)
+  }
+
+  const response = assertion.response as AuthenticatorAssertionResponse
+  if (!response.userHandle || response.userHandle.byteLength === 0) {
+    throw new WebAuthnError('Authenticator did not return a userHandle — cannot recover pubkey')
+  }
+
+  const pubkey = bytesToHex(new Uint8Array(response.userHandle))
+
+  const extensionResults = assertion.getClientExtensionResults()
+  const prfOutput = extractPrfOutput(extensionResults)
+
+  if (!prfOutput || prfOutput.length !== 32) {
+    throw new PrfNotSupportedError(
+      'PRF output not available during discoverable authentication. ' +
+      'The authenticator may not support PRF.'
+    )
+  }
+
+  const credentialId = new Uint8Array(assertion.rawId)
+
+  return { pubkey, prfOutput, credentialId }
 }

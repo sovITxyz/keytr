@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { randomBytes } from '@noble/hashes/utils'
+import { randomBytes, bytesToHex } from '@noble/hashes/utils'
 import { base64url } from '@scure/base'
 import { PRF_SALT } from '../../src/types.js'
+
+const TEST_PUBKEY = bytesToHex(randomBytes(32))
 
 // Stash originals for cleanup
 const originalNavigator = globalThis.navigator
@@ -93,6 +95,7 @@ describe('WebAuthn credential lifecycle', () => {
     const result = await registerPasskey({
       userName: 'alice',
       userDisplayName: 'Alice',
+      pubkey: TEST_PUBKEY,
     })
 
     expect(result.credential.prfSupported).toBe(true)
@@ -115,6 +118,7 @@ describe('WebAuthn credential lifecycle', () => {
     const result = await registerPasskey({
       userName: 'bob',
       userDisplayName: 'Bob',
+      pubkey: TEST_PUBKEY,
       rpId: 'custom.example',
       rpName: 'Custom RP',
       timeout: 60000,
@@ -138,13 +142,20 @@ describe('WebAuthn credential lifecycle', () => {
         response: { getTransports: () => [] },
         getClientExtensionResults: () => ({}),
       }),
+      // Fallback assertion also returns no PRF output
+      get: vi.fn().mockResolvedValue({
+        type: 'public-key',
+        rawId: rawId.buffer.slice(0),
+        response: {},
+        getClientExtensionResults: () => ({}),
+      }),
     })
 
     const { registerPasskey } = await import('../../src/webauthn/register.js')
 
     await expect(
-      registerPasskey({ userName: 'eve', userDisplayName: 'Eve' })
-    ).rejects.toThrow('does not support the PRF extension')
+      registerPasskey({ userName: 'eve', userDisplayName: 'Eve', pubkey: TEST_PUBKEY })
+    ).rejects.toThrow('PRF output not available')
   })
 
   it('registerPasskey throws WebAuthnError on null result', async () => {
@@ -153,7 +164,7 @@ describe('WebAuthn credential lifecycle', () => {
     const { registerPasskey } = await import('../../src/webauthn/register.js')
 
     await expect(
-      registerPasskey({ userName: 'eve', userDisplayName: 'Eve' })
+      registerPasskey({ userName: 'eve', userDisplayName: 'Eve', pubkey: TEST_PUBKEY })
     ).rejects.toThrow('Credential creation returned null')
   })
 
@@ -226,6 +237,7 @@ describe('WebAuthn credential lifecycle', () => {
     const { credential, prfOutput: regPrf } = await registerPasskey({
       userName: 'alice',
       userDisplayName: 'Alice',
+      pubkey: TEST_PUBKEY,
     })
 
     // Step 2: Encrypt nsec

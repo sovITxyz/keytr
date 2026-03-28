@@ -93,8 +93,31 @@ export interface RegisterOptions {
   rpName?: string
   userName: string
   userDisplayName: string
+  /**
+   * Hex-encoded 32-byte Nostr public key, stored as WebAuthn user.id.
+   * This enables discoverable credential login — the browser returns
+   * the pubkey via userHandle when the user picks a passkey.
+   */
+  pubkey: string
   /** WebAuthn ceremony timeout in milliseconds. Defaults to 120000 (2 minutes). */
   timeout?: number
+}
+
+/** Options for discoverable passkey authentication (no prior pubkey needed) */
+export interface DiscoverOptions {
+  rpId?: string
+  /** WebAuthn ceremony timeout in milliseconds. Defaults to 120000 (2 minutes). */
+  timeout?: number
+}
+
+/** Result of discoverable passkey authentication */
+export interface DiscoverResult {
+  /** Hex-encoded Nostr public key recovered from WebAuthn userHandle */
+  pubkey: string
+  /** 32-byte PRF output for key derivation */
+  prfOutput: Uint8Array
+  /** Raw credential ID */
+  credentialId: Uint8Array
 }
 
 /** Passkey authentication options for decryption */

@@ -1,6 +1,6 @@
 {
   "name": "@sovit.xyz/keytr",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Passkey login for Nostr. Encrypt your nsec with a WebAuthn passkey, publish to relays, decrypt on any device. Implements NIP-K1.",
   "type": "module",
   "main": "dist/index.js",
