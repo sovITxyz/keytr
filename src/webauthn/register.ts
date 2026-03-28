@@ -1,4 +1,4 @@
-import { randomBytes } from '@noble/hashes/utils'
+import { randomBytes, hexToBytes } from '@noble/hashes/utils'
 import { base64url } from '@scure/base'
 import type { KeytrCredential, RegisterOptions } from '../types.js'
 import { DEFAULT_RP_ID, DEFAULT_RP_NAME } from '../types.js'
@@ -18,8 +18,8 @@ export async function registerPasskey(
 ): Promise<{ credential: KeytrCredential; prfOutput: Uint8Array }> {
   const rpId = options.rpId ?? DEFAULT_RP_ID
   const rpName = options.rpName ?? DEFAULT_RP_NAME
-  const { userName, userDisplayName } = options
-  const userId = randomBytes(32)
+  const { userName, userDisplayName, pubkey } = options
+  const userId = hexToBytes(pubkey)
 
   const createOptions: CredentialCreationOptions = {
     publicKey: {

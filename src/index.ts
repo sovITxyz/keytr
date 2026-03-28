@@ -8,6 +8,8 @@ export type {
   PrfSupportInfo,
   RegisterOptions,
   AuthenticateOptions,
+  DiscoverOptions,
+  DiscoverResult,
   KeytrBundle,
 } from './types.js'
 
@@ -33,7 +35,7 @@ export { serializeBlob, deserializeBlob } from './crypto/blob.js'
 // WebAuthn
 export { checkPrfSupport } from './webauthn/support.js'
 export { registerPasskey } from './webauthn/register.js'
-export { authenticatePasskey } from './webauthn/authenticate.js'
+export { authenticatePasskey, discoverPasskey } from './webauthn/authenticate.js'
 
 // Nostr
 export {
@@ -58,28 +60,35 @@ export { publishKeytrEvent, fetchKeytrEvents, type RelayOptions } from './nostr/
 
 // ---- High-level convenience functions ----
 
-import type { RegisterOptions, KeytrBundle } from './types.js'
-import { WebAuthnError } from './errors.js'
+import type { RegisterOptions, DiscoverOptions, KeytrBundle } from './types.js'
+import { DEFAULT_RP_ID } from './types.js'
+import { WebAuthnError, RelayError, KeytrError } from './errors.js'
 import { registerPasskey } from './webauthn/register.js'
 import { authenticatePasskey } from './webauthn/authenticate.js'
+import { discoverPasskey } from './webauthn/authenticate.js'
 import { encryptNsec as _encryptNsec } from './crypto/encrypt.js'
 import { decryptNsec as _decryptNsec } from './crypto/decrypt.js'
 import { buildKeytrEvent as _buildEvent } from './nostr/event.js'
 import { parseKeytrEvent as _parseEvent } from './nostr/event.js'
-import { generateNsec as _generateNsec, nsecToNpub as _nsecToNpub } from './nostr/keys.js'
+import { generateNsec as _generateNsec, nsecToNpub as _nsecToNpub, nsecToHexPubkey as _nsecToHexPubkey } from './nostr/keys.js'
+import { fetchKeytrEvents as _fetchEvents } from './nostr/relay.js'
+import { base64url } from '@scure/base'
 
 /**
  * Full registration flow: generate nsec, create passkey, encrypt, build event.
  *
  * This is the "setup" flow for a new user or adding a new passkey.
+ * The pubkey is derived from the generated nsec and stored as WebAuthn user.id
+ * to enable discoverable login.
  */
 export async function setupKeytr(
-  options: RegisterOptions & { clientName?: string }
+  options: Omit<RegisterOptions, 'pubkey'> & { clientName?: string }
 ): Promise<KeytrBundle & { nsecBytes: Uint8Array; npub: string }> {
   const nsecBytes = _generateNsec()
   const npub = _nsecToNpub(nsecBytes)
+  const pubkey = _nsecToHexPubkey(nsecBytes)
 
-  const { credential, prfOutput } = await registerPasskey(options)
+  const { credential, prfOutput } = await registerPasskey({ ...options, pubkey })
 
   try {
     const encryptedBlob = _encryptNsec({
@@ -105,12 +114,14 @@ export async function setupKeytr(
  *
  * Call this separately from setupKeytr() — each call triggers one biometric
  * prompt. The user decides when (or if) to add backup gateways.
+ * The pubkey is derived from the provided nsec.
  */
 export async function addBackupGateway(
   nsecBytes: Uint8Array,
-  options: RegisterOptions & { clientName?: string }
+  options: Omit<RegisterOptions, 'pubkey'> & { clientName?: string }
 ): Promise<KeytrBundle> {
-  const { credential, prfOutput } = await registerPasskey(options)
+  const pubkey = _nsecToHexPubkey(nsecBytes)
+  const { credential, prfOutput } = await registerPasskey({ ...options, pubkey })
 
   try {
     const encryptedBlob = _encryptNsec({
@@ -181,4 +192,62 @@ export async function loginWithKeytr(events: {
   throw new WebAuthnError(
     `No matching passkey found across ${events.length} event(s): ${lastError?.message ?? 'unknown error'}`
   )
+}
+
+/**
+ * Discoverable login: browser shows available passkeys, user picks one,
+ * we recover the pubkey, fetch events, and decrypt the nsec.
+ *
+ * No prior knowledge of the user's pubkey or credential ID is needed.
+ * Requires passkeys registered with pubkey as user.id (post-discoverable-login update).
+ */
+export async function discoverAndLogin(
+  relays: string[],
+  options?: DiscoverOptions
+): Promise<{ nsecBytes: Uint8Array; npub: string; pubkey: string }> {
+  const { pubkey, prfOutput, credentialId } = await discoverPasskey({
+    rpId: options?.rpId ?? DEFAULT_RP_ID,
+    timeout: options?.timeout,
+  })
+
+  let events
+  try {
+    events = await _fetchEvents(pubkey, relays)
+  } catch (err) {
+    prfOutput.fill(0)
+    throw err
+  }
+
+  if (!events.length) {
+    prfOutput.fill(0)
+    throw new RelayError('No keytr events found for this pubkey')
+  }
+
+  const credentialIdB64 = base64url.encode(credentialId)
+  const matching = events.find(e => {
+    const dTag = e.tags.find((t: string[]) => t[0] === 'd')?.[1]
+    return dTag === credentialIdB64
+  })
+
+  if (!matching) {
+    prfOutput.fill(0)
+    throw new KeytrError(
+      `No event matches credential ${credentialIdB64} — ` +
+      `passkey may have been registered before discoverable login was enabled`
+    )
+  }
+
+  try {
+    const parsed = _parseEvent(matching)
+    const nsecBytes = _decryptNsec({
+      encryptedBlob: parsed.encryptedBlob,
+      prfOutput,
+      credentialId,
+    })
+
+    const npub = _nsecToNpub(nsecBytes)
+    return { nsecBytes, npub, pubkey }
+  } finally {
+    prfOutput.fill(0)
+  }
 }
