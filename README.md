@@ -4,7 +4,7 @@ Passkey login for Nostr. Encrypt your nsec with a WebAuthn passkey, publish to r
 
 ## How it works
 
-Register a passkey, encrypt your nsec with the passkey's PRF output, publish the ciphertext to Nostr relays. On a new device, authenticate with the same synced passkey to decrypt. No server trust, no passwords, no manual key copying.
+Register a passkey, encrypt your nsec with the passkey's PRF output, publish the ciphertext to Nostr relays. On any device with the synced passkey, tap to decrypt — no npub input needed, no localStorage, no manual key copying.
 
 ```
 Passkey PRF → HKDF-SHA256 → AES-256-GCM → kind:30079 event → relay
@@ -41,13 +41,25 @@ const signedEvent = finalizeEvent(eventTemplate, nsecBytes)
 await publishKeytrEvent(signedEvent, ['wss://relay.damus.io'])
 ```
 
-### Login (key recovery)
+### Login (discoverable — no npub needed)
+
+```typescript
+import { discoverAndLogin } from '@sovit.xyz/keytr'
+
+// Browser shows available passkeys, user picks one, nsec is recovered
+const { nsecBytes, npub, pubkey } = await discoverAndLogin(
+  ['wss://relay.damus.io'],
+  { rpId: 'keytr.org' }
+)
+```
+
+### Login (known pubkey)
 
 ```typescript
 import { loginWithKeytr, fetchKeytrEvents } from '@sovit.xyz/keytr'
 
 const events = await fetchKeytrEvents(pubkey, ['wss://relay.damus.io'])
-const { nsecBytes, npub } = await loginWithKeytr(events[0])
+const { nsecBytes, npub } = await loginWithKeytr(events)
 ```
 
 ## Security properties
