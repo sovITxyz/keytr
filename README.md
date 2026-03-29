@@ -64,6 +64,45 @@ const events = await fetchKeytrEvents(pubkey, ['wss://relay.damus.io'])
 const { nsecBytes, npub } = await loginWithKeytr(events)
 ```
 
+## Compatibility
+
+keytr requires the WebAuthn [PRF extension](https://w3c.github.io/webauthn/#prf-extension) and [discoverable credentials](https://w3c.github.io/webauthn/#client-side-discoverable-credential). PRF is the primary compatibility gate.
+
+### Browsers
+
+| Browser | Min Version | PRF | Discoverable Login | Notes |
+|---------|-------------|-----|--------------------|-------|
+| Chrome (Desktop) | 116+ | Yes | Yes | |
+| Chrome (Android) | 116+ | Yes | Yes | Requires Google Password Manager or PRF-capable security key |
+| Edge | 116+ | Yes | Yes | Chromium-based, same support as Chrome |
+| Safari | 18+ | Yes | Two-step | iOS/iPadOS: PRF unavailable during discovery — keytr handles this automatically |
+| Firefox | 122+ | Yes | Yes | |
+| Firefox Android | — | No | — | PRF not supported |
+
+### Authenticators
+
+| Authenticator | PRF | Notes |
+|---------------|-----|-------|
+| iCloud Keychain | Yes | macOS 15+ / iOS 18+ |
+| Google Password Manager | Yes | Android 14+ / Chrome 116+ |
+| Windows Hello | Yes | Windows 10 22H2+ / Chrome 116+ |
+| YubiKey 5 (firmware 5.7+) | Yes | Via `hmac-secret` → PRF bridge |
+| YubiKey 5 (firmware < 5.7) | No | No PRF / hmac-secret support |
+| Older security keys | No | Require PRF-capable firmware |
+
+### Federated gateways
+
+Cross-client login via [Related Origin Requests](https://w3c.github.io/webauthn/#sctn-related-origins) requires additional browser support:
+
+| Browser | Related Origins | Min Version |
+|---------|-----------------|-------------|
+| Chrome | Yes | 128+ |
+| Edge | Yes | 128+ |
+| Safari | Yes | 18+ |
+| Firefox | No | Not yet supported |
+
+Use `checkPrfSupport()` at runtime to detect whether the current browser + authenticator combination supports PRF before showing passkey UI.
+
 ## Security properties
 
 - **Hardware-bound** — PRF output requires physical authenticator + biometric/PIN
