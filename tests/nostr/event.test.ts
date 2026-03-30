@@ -31,6 +31,16 @@ describe('nostr event', () => {
     expect(event.tags.find(t => t[0] === 'transports')).toEqual(['transports', 'internal', 'hybrid'])
   })
 
+  it('builds a KiH event with version 3', () => {
+    const event = buildKeytrEvent({
+      credential,
+      encryptedBlob: 'dGVzdA==',
+      version: '3',
+    })
+
+    expect(event.tags.find(t => t[0] === 'v')?.[1]).toBe('3')
+  })
+
   it('round-trips through build and parse', () => {
     const event = buildKeytrEvent({ credential, encryptedBlob: 'dGVzdA==' })
     const parsed = parseKeytrEvent(event)
@@ -67,5 +77,18 @@ describe('nostr event', () => {
       content: '',
       tags: [['d', credential.credentialIdBase64url]],
     })).toThrow('Missing "rp" tag')
+  })
+
+  it('detects PRF mode from v=1', () => {
+    const event = buildKeytrEvent({ credential, encryptedBlob: 'dGVzdA==' })
+    const parsed = parseKeytrEvent(event)
+    expect(parsed.mode).toBe('prf')
+  })
+
+  it('detects KiH mode from v=3', () => {
+    const event = buildKeytrEvent({ credential, encryptedBlob: 'dGVzdA==', version: '3' })
+    const parsed = parseKeytrEvent(event)
+    expect(parsed.mode).toBe('kih')
+    expect(parsed.version).toBe(3)
   })
 })

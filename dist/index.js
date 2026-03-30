@@ -1,30 +1,34 @@
-export { KEYTR_VERSION, KEYTR_EVENT_KIND, DEFAULT_RP_ID, DEFAULT_RP_NAME, KEYTR_GATEWAYS } from './types.js';
+export { KEYTR_VERSION, KEYTR_KIH_VERSION, KEYTR_EVENT_KIND, DEFAULT_RP_ID, DEFAULT_RP_NAME, KEYTR_GATEWAYS, KIH_KEY_SIZE, KIH_USER_ID_SIZE, KIH_MODE_BYTE, PRF_USER_ID_SIZE, } from './types.js';
 // Errors
 export { KeytrError, PrfNotSupportedError, EncryptionError, DecryptionError, BlobParseError, WebAuthnError, RelayError, } from './errors.js';
 // Crypto
-export { encryptNsec } from './crypto/encrypt.js';
+export { encryptNsec, buildAad } from './crypto/encrypt.js';
 export { decryptNsec } from './crypto/decrypt.js';
 export { deriveKey } from './crypto/kdf.js';
 export { serializeBlob, deserializeBlob } from './crypto/blob.js';
 // WebAuthn
 export { checkPrfSupport } from './webauthn/support.js';
 export { registerPasskey } from './webauthn/register.js';
-export { authenticatePasskey, discoverPasskey } from './webauthn/authenticate.js';
+export { registerKihPasskey } from './webauthn/register-kih.js';
+export { authenticatePasskey, discoverPasskey, unifiedDiscover } from './webauthn/authenticate.js';
+export { generateKihUserId, detectMode, extractKihKey } from './webauthn/kih.js';
 // Nostr
 export { generateNsec, nsecToPublicKey, encodeNsec, decodeNsec, encodeNpub, decodeNpub, nsecToNpub, nsecToHexPubkey, } from './nostr/keys.js';
 export { buildKeytrEvent, parseKeytrEvent } from './nostr/event.js';
-export { publishKeytrEvent, fetchKeytrEvents } from './nostr/relay.js';
-import { DEFAULT_RP_ID } from './types.js';
-import { WebAuthnError, RelayError, KeytrError } from './errors.js';
+export { publishKeytrEvent, fetchKeytrEvents, fetchKeytrEventByDTag } from './nostr/relay.js';
+import { DEFAULT_RP_ID, KEYTR_KIH_VERSION } from './types.js';
+import { WebAuthnError, RelayError, KeytrError, PrfNotSupportedError } from './errors.js';
 import { registerPasskey } from './webauthn/register.js';
+import { registerKihPasskey as _registerKih } from './webauthn/register-kih.js';
 import { authenticatePasskey } from './webauthn/authenticate.js';
 import { discoverPasskey } from './webauthn/authenticate.js';
+import { unifiedDiscover as _unifiedDiscover } from './webauthn/authenticate.js';
 import { encryptNsec as _encryptNsec } from './crypto/encrypt.js';
 import { decryptNsec as _decryptNsec } from './crypto/decrypt.js';
 import { buildKeytrEvent as _buildEvent } from './nostr/event.js';
 import { parseKeytrEvent as _parseEvent } from './nostr/event.js';
 import { generateNsec as _generateNsec, nsecToNpub as _nsecToNpub, nsecToHexPubkey as _nsecToHexPubkey } from './nostr/keys.js';
-import { fetchKeytrEvents as _fetchEvents } from './nostr/relay.js';
+import { fetchKeytrEvents as _fetchEvents, fetchKeytrEventByDTag as _fetchByDTag } from './nostr/relay.js';
 import { base64url } from '@scure/base';
 /**
  * Full registration flow: generate nsec, create passkey, encrypt, build event.
@@ -85,7 +89,7 @@ export async function addBackupGateway(nsecBytes, options) {
 /**
  * Full login flow: try each event's passkey until one succeeds.
  *
- * Pass all kind:30079 events for this pubkey. The function tries each
+ * Pass all kind:31777 events for this pubkey. The function tries each
  * event in order — the first passkey the authenticator recognises wins.
  * This works regardless of which gateway the passkey was registered with.
  */
@@ -169,6 +173,130 @@ export async function discoverAndLogin(relays, options) {
     }
     finally {
         prfOutput.fill(0);
+    }
+}
+/**
+ * Unified setup: tries PRF registration first, falls back to KiH if PRF fails.
+ *
+ * PRF mode stores the pubkey in user.id (32 bytes) and relies on the
+ * authenticator's PRF extension for key derivation.
+ *
+ * KiH mode stores a random key in user.id (33 bytes, 0x03 prefix) and
+ * works with any authenticator including password manager extensions.
+ */
+export async function setup(options) {
+    const nsecBytes = _generateNsec();
+    const npub = _nsecToNpub(nsecBytes);
+    const pubkey = _nsecToHexPubkey(nsecBytes);
+    // Try PRF first
+    try {
+        const { credential, prfOutput } = await registerPasskey({
+            rpId: options.rpId,
+            rpName: options.rpName,
+            userName: options.userName,
+            userDisplayName: options.userDisplayName,
+            pubkey,
+            timeout: options.timeout,
+        });
+        try {
+            const encryptedBlob = _encryptNsec({
+                nsecBytes,
+                prfOutput,
+                credentialId: credential.credentialId,
+            });
+            const eventTemplate = _buildEvent({
+                credential,
+                encryptedBlob,
+                clientName: options.clientName,
+            });
+            return { credential, encryptedBlob, eventTemplate, nsecBytes, npub, mode: 'prf' };
+        }
+        finally {
+            prfOutput.fill(0);
+        }
+    }
+    catch (err) {
+        // Only fall back to KiH if PRF specifically failed
+        if (!(err instanceof PrfNotSupportedError))
+            throw err;
+    }
+    // KiH fallback
+    const { credential, handleKey } = await _registerKih({
+        rpId: options.rpId,
+        rpName: options.rpName,
+        userName: options.userName,
+        userDisplayName: options.userDisplayName,
+        timeout: options.timeout,
+    });
+    try {
+        const encryptedBlob = _encryptNsec({
+            nsecBytes,
+            prfOutput: handleKey,
+            credentialId: credential.credentialId,
+            aadVersion: KEYTR_KIH_VERSION,
+        });
+        const eventTemplate = _buildEvent({
+            credential,
+            encryptedBlob,
+            clientName: options.clientName,
+            version: String(KEYTR_KIH_VERSION),
+        });
+        return { credential, encryptedBlob, eventTemplate, nsecBytes, npub, mode: 'kih' };
+    }
+    finally {
+        handleKey.fill(0);
+    }
+}
+/**
+ * Unified discoverable login: auto-detects PRF vs KiH from userHandle length.
+ *
+ * 1. Discovery assertion (1 biometric prompt for both modes)
+ * 2. If PRF: step-2 targeted assertion for PRF output, then query by pubkey
+ * 3. If KiH: extract key from userHandle, query relay by #d tag
+ * 4. Decrypt nsec, derive pubkey, verify against event.pubkey
+ */
+export async function discover(relays, options) {
+    const result = await _unifiedDiscover({
+        rpId: options?.rpId ?? DEFAULT_RP_ID,
+        timeout: options?.timeout,
+    });
+    const credentialIdB64 = base64url.encode(result.credentialId);
+    let event = null;
+    if (result.mode === 'prf' && result.pubkey) {
+        // PRF path: fetch by pubkey, find matching credential
+        const events = await _fetchEvents(result.pubkey, relays);
+        event = events.find(e => {
+            const dTag = e.tags.find((t) => t[0] === 'd')?.[1];
+            return dTag === credentialIdB64;
+        }) ?? null;
+    }
+    else {
+        // KiH path: fetch by d-tag (no pubkey available)
+        event = await _fetchByDTag(credentialIdB64, relays);
+    }
+    if (!event) {
+        result.keyMaterial.fill(0);
+        throw new KeytrError(`No event matches credential ${credentialIdB64}`);
+    }
+    try {
+        const parsed = _parseEvent(event);
+        const nsecBytes = _decryptNsec({
+            encryptedBlob: parsed.encryptedBlob,
+            prfOutput: result.keyMaterial,
+            credentialId: result.credentialId,
+            aadVersion: result.aadVersion,
+        });
+        const pubkey = _nsecToHexPubkey(nsecBytes);
+        const npub = _nsecToNpub(nsecBytes);
+        // Verify pubkey matches event author (integrity check)
+        if ('pubkey' in event && event.pubkey && event.pubkey !== pubkey) {
+            nsecBytes.fill(0);
+            throw new KeytrError('Decrypted nsec does not match event author pubkey — possible tampering');
+        }
+        return { nsecBytes, npub, pubkey, mode: result.mode };
+    }
+    finally {
+        result.keyMaterial.fill(0);
     }
 }
 //# sourceMappingURL=index.js.map

@@ -29,12 +29,14 @@ Every tier ends with a single biometric prompt. The difference is **how the clie
 
 ### Why three tiers?
 
-Discoverable login (`discoverAndLogin`) works from zero state, but it's the slowest path — it uses a two-step WebAuthn flow (discovery without PRF, then targeted assertion with PRF to work around Safari iOS 18+), then fetches events by the recovered pubkey. If the client already knows the pubkey (from its own user store or a credential index), it can skip discovery and go straight to a targeted relay query with a single assertion.
+Discoverable login (`discover`) works from zero state, but it's the slowest path — it triggers a WebAuthn discovery assertion, auto-detects the mode (PRF vs KiH), then fetches the encrypted event from relays. If the client already knows the pubkey (from its own user store or a credential index), it can skip discovery and go straight to a targeted relay query with a single assertion.
 
 The three-tier pattern means:
 - **First login** on a new device hits tier 3 (discoverable). Slow but works.
 - **Second login** hits tier 1 or 2 (indexed). Fast.
 - **Login after clearing keytr data but not app data** hits tier 2 (app's user store). Still fast.
+
+**Note on KiH mode**: Tiers 1 and 2 (known pubkey → `fetchKeytrEvents` → `loginWithKeytr`) only work for PRF-mode credentials. KiH credentials don't store the pubkey in `userHandle`, so they always go through tier 3 (discoverable). The `discover()` API handles this automatically.
 
 ---
 
@@ -90,36 +92,42 @@ function removeFromIndex(pubkey) {
 
 ---
 
-## The userHandle: Where the Pubkey Lives
+## The userHandle: Mode Detection
 
-During passkey registration, keytr stores the user's **32-byte raw Nostr public key** as the WebAuthn `user.id`. When the authenticator returns a response during discoverable authentication, this value comes back as `response.userHandle`.
+During passkey registration, keytr stores different data in the WebAuthn `user.id` depending on the mode:
 
-### What it contains
+### PRF mode (32 bytes)
 
 ```
 userHandle = raw 32-byte x-only Nostr public key
 ```
 
-This is the same value as the `pubkey` field in Nostr events, just in raw bytes instead of hex. Convert with:
+This is the same value as the `pubkey` field in Nostr events, just in raw bytes instead of hex. The pubkey enables relay lookup by author during discoverable login.
 
-```javascript
-// userHandle (Uint8Array) → hex pubkey string
-const pubkey = Array.from(userHandle)
-  .map(b => b.toString(16).padStart(2, '0'))
-  .join('')
+### KiH mode (33 bytes)
+
+```
+userHandle = [0x03 || random_key(32)]
 ```
 
-keytr's `discoverAndLogin()` and `discoverPasskey()` handle this conversion internally and return the hex pubkey directly.
+The first byte (`0x03`) is a mode marker. The remaining 32 bytes are the encryption key. No pubkey is stored — it's recovered by deriving from the nsec after decryption.
+
+### Mode detection
+
+keytr detects the mode from the `userHandle` length:
+- **32 bytes** → PRF mode (pubkey)
+- **33 bytes, byte[0] === 0x03** → KiH mode (encryption key)
+
+The unified `discover()` and `unifiedDiscover()` APIs handle this automatically. Apps should not need to inspect `userHandle` directly.
 
 ### How apps should use it
 
-The pubkey recovered from `userHandle` is used for three things:
+After a successful `discover()` call, the returned `pubkey` is available regardless of mode (KiH derives it after decryption). Use it for:
 
-1. **Relay lookup**: `fetchKeytrEvents(pubkey, relays)` queries for kind:31777 events authored by this pubkey. This is how discoverable login finds the encrypted blob without any prior state.
+1. **Credential indexing**: Store the pubkey so future PRF-mode logins can skip discovery.
+2. **User identification**: Load the user's profile, check session state.
 
-2. **Credential indexing**: After a successful discoverable login, store the pubkey in your credential index so future logins can skip discovery and go straight to a targeted relay query (tier 1).
-
-3. **User identification**: The pubkey identifies the Nostr user. Your app can use it to load the user's profile, check session state, or match against your user store.
+For KiH-mode credentials, relay lookup uses `#d` tag queries instead of pubkey author queries — this is handled internally by `discover()`.
 
 ---
 
@@ -164,7 +172,7 @@ Putting it all together — a complete login function with three-tier fallback:
 import {
   fetchKeytrEvents,
   loginWithKeytr,
-  discoverAndLogin,
+  discover,
   encodeNsec,
 } from '@sovit.xyz/keytr'
 
@@ -207,8 +215,8 @@ async function loginWithPasskey() {
     }
   } catch { /* fall through to discoverable */ }
 
-  // ── Tier 3: discoverable ──────────────────────────────────────
-  const { nsecBytes, pubkey } = await discoverAndLogin(RELAYS)
+  // ── Tier 3: discoverable (auto-detects PRF vs KiH) ────────────
+  const { nsecBytes, pubkey } = await discover(RELAYS)
   try {
     // Auto-upgrade: index the credential for tier 1 next time
     if (pubkey && !hasCredential(pubkey)) addToIndex(pubkey)
@@ -284,15 +292,18 @@ window.addEventListener('load', async () => {
 For users who don't have a Nostr identity yet:
 
 ```javascript
-import { setupKeytr, publishKeytrEvent } from '@sovit.xyz/keytr'
+import { setup, publishKeytrEvent, nsecToHexPubkey } from '@sovit.xyz/keytr'
 import { finalizeEvent } from 'nostr-tools/pure'
 
-const { credential, encryptedBlob, eventTemplate, nsecBytes, npub } = await setupKeytr({
-  userName: pubkey.slice(0, 16),  // or npub, or display name
+// Tries PRF first, falls back to KiH for password manager extensions
+const { credential, encryptedBlob, eventTemplate, nsecBytes, npub, mode } = await setup({
+  userName: 'My App User',
   userDisplayName: 'My App User',
   rpId: 'keytr.org',             // use a gateway for cross-client access
   clientName: 'my-app',
 })
+
+console.log(`Registered in ${mode} mode`) // 'prf' or 'kih'
 
 // Sign and publish
 const signedEvent = finalizeEvent(eventTemplate, nsecBytes)
@@ -406,7 +417,7 @@ See [Architecture: Password Manager Extensions](architecture.md#password-manager
 
 ### PRF support detection
 
-Check for PRF support early (e.g., on module import) so you can show or hide passkey UI accordingly:
+Check for PRF support early if you need to inform the user which mode will be used. Note that the unified `setup()` API handles this automatically — it tries PRF first and falls back to KiH:
 
 ```javascript
 import { checkPrfSupport } from '@sovit.xyz/keytr'
@@ -414,8 +425,9 @@ import { checkPrfSupport } from '@sovit.xyz/keytr'
 const { supported, platformAuthenticator, reason } = await checkPrfSupport()
 
 if (!supported) {
-  // Hide passkey UI or show explanation
-  console.log('PRF not available:', reason)
+  // PRF unavailable — setup() will use KiH mode automatically
+  // You can still show passkey UI, just inform the user
+  console.log('PRF not available, will use KiH mode:', reason)
 }
 ```
 

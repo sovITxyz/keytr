@@ -1,11 +1,14 @@
 # keytr Roadmap
 
-## Current State: NIP-K1 (v0.3.x)
+## Current State: NIP-K1 (v0.4.x)
 
-keytr implements NIP-K1 — passkey-encrypted private keys. A user's nsec is encrypted with the WebAuthn PRF extension and published to Nostr relays as a kind:31777 event. Any device with the synced passkey can decrypt it in one biometric tap.
+keytr implements NIP-K1 — passkey-encrypted private keys. A user's nsec is encrypted with a passkey and published to Nostr relays as a kind:31777 event. Any device with the synced passkey can decrypt it in one biometric tap.
 
 **What's shipping today:**
 - Full NIP-K1 implementation (encrypt, decrypt, event publish/fetch)
+- **Two encryption modes**: PRF (hardware-bound key) and KiH (key-in-handle, universal compatibility)
+- **Unified API**: `setup()` tries PRF first, falls back to KiH; `discover()` auto-detects mode
+- **Password manager extension support**: 1Password, Bitwarden, Dashlane work via KiH mode
 - Discoverable login (no prior pubkey needed)
 - Parallel relay operations
 - Cross-gateway support via Related Origin Requests

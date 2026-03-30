@@ -56,7 +56,7 @@ Given the nsec bytes, PRF output, and credential ID:
 1. Generate 12-byte random IV (AES-GCM nonce)
 2. Generate 32-byte random HKDF salt
 3. Derive AES-256 key via HKDF (above)
-4. Build AAD: `"keytr" || 0x01 || credentialId` — this binds the ciphertext to a specific credential and version, preventing substitution/downgrade attacks
+4. Build AAD: `"keytr" || version_byte || credentialId` — this binds the ciphertext to a specific credential, version, and mode (`0x01` for PRF, `0x03` for KiH), preventing substitution/downgrade/cross-mode attacks
 5. Encrypt: `AES-256-GCM(key, iv, nsec, aad)` → 48 bytes (32-byte nsec + 16-byte auth tag)
 6. Serialize into a 93-byte blob, then base64-encode
 
@@ -72,12 +72,14 @@ Source: `src/crypto/decrypt.ts`
 
 ```
 Offset  Length  Field
-0       1       Version byte (0x01)
+0       1       Version byte (0x01 for PRF, 0x01 for KiH — blob format is identical)
 1       12      IV (AES-GCM nonce)
 13      32      HKDF salt
 45      48      Ciphertext (32-byte nsec + 16-byte GCM auth tag)
 ────────────
 Total: 93 bytes → ~124 base64 characters
+
+Note: The blob version byte is always 0x01 (the binary format hasn't changed). Mode differentiation is via the AAD version byte (0x01 vs 0x03) and the event's `v` tag.
 ```
 
 `serializeBlob()` packs the `EncryptedNsecBlob` struct into this binary layout. `deserializeBlob()` unpacks it with validation (checks version, total length).
@@ -101,7 +103,30 @@ Key functions:
 
 Source: `src/webauthn/prf.ts`
 
-### Registration
+### Key-in-Handle (KiH) Mode
+
+KiH eliminates the PRF dependency for authenticators that don't support it (password manager extensions like 1Password, Bitwarden, Dashlane, and Firefox Android).
+
+Instead of deriving the encryption key from PRF output, KiH embeds a random 256-bit key directly in the passkey's `user.id` field:
+
+```
+user.id = [0x03 || random_key(32)]   — 33 bytes total
+```
+
+Mode detection is by `user.id` length:
+- **32 bytes** → PRF mode (user.id contains the hex-encoded pubkey)
+- **33 bytes, byte[0] === 0x03** → KiH mode (user.id contains mode byte + encryption key)
+
+The same crypto pipeline applies: the key goes through HKDF-SHA256 + AES-256-GCM, producing an identical blob format. Only the key source and AAD version byte differ.
+
+Key functions:
+- `generateKihUserId()` — creates a 33-byte `[0x03 || random(32)]` buffer
+- `detectMode(userHandle)` — returns `'prf'` or `'kih'` based on length + prefix
+- `extractKihKey(userHandle)` — returns the 32-byte key from bytes [1..33]
+
+Source: `src/webauthn/kih.ts`
+
+### Registration (PRF Mode)
 
 `registerPasskey(options)` does:
 
@@ -118,6 +143,24 @@ Source: `src/webauthn/prf.ts`
 7. Return `{ credential: KeytrCredential, prfOutput: Uint8Array }`
 
 Source: `src/webauthn/register.ts`
+
+### Registration (KiH Mode)
+
+`registerKihPasskey(options)` does:
+
+1. Generate a 33-byte KiH user.id: `[0x03 || random(32)]`
+2. Generate random challenge
+3. Build `CredentialCreationOptions`:
+   - Same rpId, algorithms, resident key, user verification as PRF mode
+   - **No PRF extension** — KiH doesn't need it
+4. Call `navigator.credentials.create()` — **single ceremony, no follow-up assertion**
+5. Extract credential ID, transports
+6. Extract the 32-byte key from the generated user.id
+7. Return `{ credential: KeytrCredential, handleKey: Uint8Array }`
+
+KiH registration always completes in **1 biometric prompt** (no YubiKey follow-up, no Safari two-step).
+
+Source: `src/webauthn/register-kih.ts`
 
 ### Authentication (Known Credential)
 
@@ -160,6 +203,30 @@ Source: `src/webauthn/authenticate.ts`
 8. Return `{ pubkey, prfOutput, credentialId }`
 
 This pattern matches the existing YubiKey fallback in `registerPasskey()`. The second assertion is typically auto-approved by the browser without an additional biometric prompt.
+
+Source: `src/webauthn/authenticate.ts`
+
+### Authentication (Unified Discoverable)
+
+`unifiedDiscover(options?)` auto-detects PRF vs KiH from the `userHandle` returned in step 1:
+
+**Step 1 — Discovery (same for both modes):**
+
+1. Empty `allowCredentials`, no PRF extension
+2. Browser shows passkey picker, user selects one
+3. Extract `userHandle` and `credentialId` from the response
+
+**Mode detection:**
+
+- `userHandle.length === 33 && userHandle[0] === 0x03` → **KiH mode**: extract key from bytes [1..33]. Done — no step 2 needed.
+- `userHandle.length === 32` → **PRF mode**: userHandle is the pubkey. Proceed to step 2.
+
+**Step 2 (PRF only):**
+
+4. Targeted assertion with PRF extension using the discovered credential ID
+5. Extract PRF output
+
+Returns `{ mode, keyMaterial, credentialId, aadVersion, pubkey? }`. The `pubkey` is only available in PRF mode; KiH mode derives it after decryption.
 
 Source: `src/webauthn/authenticate.ts`
 
@@ -223,7 +290,7 @@ keytr uses **kind 31777** (parameterized replaceable event):
 | `rp` | Yes | WebAuthn Relying Party ID (domain). Clients need this to know which origin to use for decryption. |
 | `algo` | Yes | Encryption algorithm. MUST be `aes-256-gcm`. |
 | `kdf` | Yes | Key derivation function. MUST be `hkdf-sha256`. |
-| `v` | Yes | Blob format version. Currently `1`. |
+| `v` | Yes | Protocol version. `1` = PRF mode, `3` = KiH mode. |
 | `transports` | No | WebAuthn authenticator transports (e.g., `internal`, `hybrid`, `usb`, `ble`, `nfc`). |
 | `client` | No | Name of the client that created this event. |
 
@@ -234,7 +301,8 @@ Source: `src/nostr/event.ts`
 ### Relay Operations
 
 - `publishKeytrEvent(signedEvent, relayUrls)` — publishes to all relays in parallel; only throws if ALL relays fail
-- `fetchKeytrEvents(pubkey, relayUrls)` — queries all relays in parallel for kind:31777 events, deduplicates by event ID. Default 5-second timeout per relay.
+- `fetchKeytrEvents(pubkey, relayUrls)` — queries all relays in parallel for kind:31777 events by author pubkey, deduplicates by event ID. Default 5-second timeout per relay.
+- `fetchKeytrEventByDTag(dTag, relayUrls)` — queries by `#d` tag (base64url credential ID). Used for KiH discoverable login where the pubkey isn't known upfront. Returns the most recent matching event.
 
 Source: `src/nostr/relay.ts`
 
@@ -242,30 +310,43 @@ Source: `src/nostr/relay.ts`
 
 ## Layer 4: High-Level Flows
 
-### Setup (New User / New Passkey)
+### Unified Setup (PRF-first, KiH fallback)
 
 ```typescript
-const result = await setupKeytr({
+const result = await setup({
   userName: 'alice',
   userDisplayName: 'Alice',
   rpId: 'keytr.org',      // optional, defaults to keytr.org
   clientName: 'my-app',   // optional
 })
-// result: { credential, encryptedBlob, eventTemplate, nsecBytes, npub }
+// result: { credential, encryptedBlob, eventTemplate, nsecBytes, npub, mode }
+// mode: 'prf' | 'kih'
 ```
 
 Internally:
 
 1. `generateNsec()` → 32-byte nsec
-2. `nsecToNpub(nsec)` → bech32 public key
-3. `nsecToHexPubkey(nsec)` → hex pubkey (passed to registerPasskey as `user.id`)
-4. `registerPasskey({ ...options, pubkey })` → credential + PRF output
-5. `encryptNsec({ nsecBytes, prfOutput, credentialId })` → base64 blob
-6. Zero out PRF output (in `finally` block)
-7. `buildKeytrEvent({ credential, encryptedBlob })` → unsigned event template
-8. Return everything
+2. Try PRF registration: `registerPasskey({ pubkey })` → credential + PRF output
+3. If `PrfNotSupportedError`: fall back to `registerKihPasskey()` → credential + handleKey
+4. Encrypt with the appropriate AAD version (`0x01` for PRF, `0x03` for KiH)
+5. Build event template with version tag (`v=1` or `v=3`)
+6. Zero out key material (in `finally` block)
+7. Return everything including `mode`
 
 The caller is responsible for: signing the event with the nsec, publishing it to relays, and zeroing `nsecBytes` after use.
+
+Source: `src/index.ts`
+
+### Legacy Setup (PRF-only)
+
+```typescript
+const result = await setupKeytr({
+  userName: 'alice',
+  userDisplayName: 'Alice',
+})
+```
+
+The original `setupKeytr()` is retained for backward compatibility. It only uses PRF mode and throws `PrfNotSupportedError` if PRF is unavailable.
 
 Source: `src/index.ts`
 
@@ -295,25 +376,29 @@ This is a separate action from setup — the user opts in when they want resilie
 
 Source: `src/index.ts`
 
-### Discoverable Login (No Prior State)
+### Unified Discoverable Login (No Prior State)
 
 ```typescript
-const { nsecBytes, npub, pubkey } = await discoverAndLogin(
+const { nsecBytes, npub, pubkey, mode } = await discover(
   ['wss://relay.damus.io'],
   { rpId: 'keytr.org' }
 )
 ```
 
-One call, no npub input needed:
+One call, no npub input needed. Auto-detects PRF vs KiH:
 
-1. `discoverPasskey({ rpId })` → browser shows passkey picker → targeted PRF assertion → returns pubkey, PRF output, credential ID
-2. `fetchKeytrEvents(pubkey, relays)` → fetch kind:31777 events for the recovered pubkey
-3. Match the event whose `d` tag equals `base64url(credentialId)`
-4. `decryptNsec({ encryptedBlob, prfOutput, credentialId })` → 32-byte nsec
-5. Zero out PRF output (in `finally` block)
-6. Return `{ nsecBytes, npub, pubkey }`
+1. `unifiedDiscover({ rpId })` → browser shows passkey picker
+   - If userHandle is 33 bytes (KiH): extract key, done in 1 prompt
+   - If userHandle is 32 bytes (PRF): targeted PRF assertion (step 2)
+2. Fetch event:
+   - PRF: `fetchKeytrEvents(pubkey, relays)` → match by `d` tag
+   - KiH: `fetchKeytrEventByDTag(base64url(credentialId), relays)` — no pubkey needed
+3. `decryptNsec({ encryptedBlob, keyMaterial, credentialId, aadVersion })` → 32-byte nsec
+4. Derive pubkey from nsec, verify against event author (integrity check)
+5. Zero out key material (in `finally` block)
+6. Return `{ nsecBytes, npub, pubkey, mode }`
 
-If no matching event is found, throws `KeytrError` (the passkey may have been registered before discoverable login was enabled).
+The legacy `discoverAndLogin()` is retained for backward compatibility (PRF-only).
 
 Source: `src/index.ts`
 
@@ -528,15 +613,16 @@ Without the browser's origin enforcement, native clients take on responsibility 
 
 ## Security Model
 
-| Property | Mechanism |
-|----------|-----------|
-| **Hardware-bound key** | PRF output requires physical authenticator + biometric/PIN — unlike passwords, can't be phished or brute-forced |
-| **Origin-bound** | PRF output tied to rpId — phishing sites on different domains get a different (useless) PRF output |
-| **AAD binding** | Ciphertext authenticated against credential ID + version — prevents ciphertext substitution or downgrade |
-| **Unique ciphertexts** | Random IV + random HKDF salt → re-encrypting same nsec produces different output |
-| **No server trust** | Relay is a dumb store. All crypto is end-to-end between the authenticator and the client |
-| **Memory hygiene** | PRF output and derived keys zeroed after use (in `finally` blocks) |
-| **Passkey deletion = permanent loss** | If all passkeys deleted with no backup, nsec is irrecoverable. Multiple passkeys recommended |
+| Property | PRF Mode | KiH Mode |
+|----------|----------|----------|
+| **Key source** | PRF output — hardware-bound, never leaves authenticator | Random 256-bit key stored in `user.id` — protected by passkey biometric/PIN |
+| **Origin-bound** | PRF output tied to rpId | Passkey still bound to rpId; key only released on valid assertion |
+| **AAD binding** | `"keytr" \|\| 0x01 \|\| credentialId` | `"keytr" \|\| 0x03 \|\| credentialId` — cross-mode decryption impossible |
+| **Unique ciphertexts** | Random IV + random HKDF salt | Same |
+| **No server trust** | Relay is a dumb store, end-to-end encryption | Same |
+| **Memory hygiene** | PRF output and derived keys zeroed in `finally` blocks | Same (handleKey zeroed after use) |
+| **Passkey deletion** | Permanent loss if no backup | Same |
+| **Authenticator compatibility** | Requires PRF extension (Chrome 116+, Safari 18+, etc.) | Any WebAuthn authenticator including password manager extensions |
 
 ### Password Fallback (Disabled)
 
@@ -745,13 +831,18 @@ Source: `src/errors.ts`
 ## Constants
 
 ```
-KEYTR_VERSION    = 1
-KEYTR_EVENT_KIND = 31777
-PRF_SALT         = UTF-8("keytr-v1")
-HKDF_INFO        = "keytr nsec encryption v1"
-DEFAULT_RP_ID    = "keytr.org"
-DEFAULT_RP_NAME  = "keytr"
-KEYTR_GATEWAYS   = ["keytr.org", "nostkey.org"]
+KEYTR_VERSION      = 1          // AAD version byte for PRF mode
+KEYTR_KIH_VERSION  = 3          // AAD version byte for KiH mode
+KEYTR_EVENT_KIND   = 31777
+PRF_SALT           = UTF-8("keytr-v1")
+HKDF_INFO          = "keytr nsec encryption v1"
+DEFAULT_RP_ID      = "keytr.org"
+DEFAULT_RP_NAME    = "keytr"
+KEYTR_GATEWAYS     = ["keytr.org", "nostkey.org"]
+KIH_KEY_SIZE       = 32         // Random key size in bytes
+KIH_USER_ID_SIZE   = 33         // 0x03 + 32-byte key
+KIH_MODE_BYTE      = 0x03       // Prefix byte in KiH user.id
+PRF_USER_ID_SIZE   = 32         // Pubkey in PRF user.id
 ```
 
 Source: `src/types.ts`
@@ -775,23 +866,25 @@ All crypto libraries are from the `@noble`/`@scure` family (audited, pure JS, no
 
 ```
 src/
-├── index.ts              — public API + setupKeytr/loginWithKeytr
-├── types.ts              — interfaces, constants
+├── index.ts              — public API + setup/discover + legacy setupKeytr/loginWithKeytr
+├── types.ts              — interfaces, constants (PRF + KiH)
 ├── errors.ts             — error classes
 ├── crypto/
-│   ├── encrypt.ts        — encryptNsec()
+│   ├── encrypt.ts        — encryptNsec() + buildAad()
 │   ├── decrypt.ts        — decryptNsec()
 │   ├── kdf.ts            — deriveKey() via HKDF
 │   └── blob.ts           — serialize/deserialize 93-byte blob
 ├── webauthn/
-│   ├── register.ts       — registerPasskey()
-│   ├── authenticate.ts   — authenticatePasskey()
+│   ├── register.ts       — registerPasskey() (PRF mode)
+│   ├── register-kih.ts   — registerKihPasskey() (KiH mode)
+│   ├── authenticate.ts   — authenticatePasskey() + discoverPasskey() + unifiedDiscover()
+│   ├── kih.ts            — generateKihUserId(), detectMode(), extractKihKey()
 │   ├── prf.ts            — PRF extension helpers
 │   └── support.ts        — checkPrfSupport()
 ├── nostr/
 │   ├── keys.ts           — nsec/npub encode/decode
-│   ├── event.ts          — build/parse kind:31777
-│   └── relay.ts          — publish/fetch events
+│   ├── event.ts          — build/parse kind:31777 (v=1 PRF, v=3 KiH)
+│   └── relay.ts          — publish/fetch events + fetchKeytrEventByDTag()
 └── fallback/
     └── password.ts       — disabled password encryption
 ```
@@ -803,26 +896,39 @@ src/
 ### Types
 
 ```typescript
+// Core
 KeytrCredential, EncryptedNsecBlob, KeytrEventTemplate,
 EncryptOptions, DecryptOptions, PrfSupportInfo,
 RegisterOptions, AuthenticateOptions, DiscoverOptions, DiscoverResult,
 KeytrBundle
+
+// KiH mode
+KeytrMode, UnifiedDiscoverResult, KihRegisterOptions, KihRegisterResult,
+SetupOptions, SetupResult, DiscoverLoginResult, ParsedKeytrEvent
 ```
 
-### High-Level
+### High-Level (Unified API)
 
 ```typescript
-setupKeytr(options)              // Full registration flow (1 passkey prompt)
+setup(options)                   // PRF-first with KiH fallback (returns mode)
+discover(relays, opts?)          // Auto-detect mode from userHandle, fetch & decrypt
+```
+
+### High-Level (Legacy — backward compatible)
+
+```typescript
+setupKeytr(options)              // PRF-only registration flow
 addBackupGateway(nsec, options)  // Register backup on another gateway
-discoverAndLogin(relays, opts?)  // Discoverable login — no npub needed
+discoverAndLogin(relays, opts?)  // PRF-only discoverable login
 loginWithKeytr(events)           // Try each event until a passkey matches
 ```
 
 ### Crypto
 
 ```typescript
-encryptNsec(options)     // Encrypt nsec with PRF output
-decryptNsec(options)     // Decrypt nsec from blob
+encryptNsec(options)     // Encrypt nsec (supports aadVersion for KiH)
+decryptNsec(options)     // Decrypt nsec (supports aadVersion for KiH)
+buildAad(credId, ver?)   // Build AAD with version byte
 deriveKey(prf, salt)     // HKDF key derivation
 serializeBlob(blob)      // Pack to binary
 deserializeBlob(bytes)   // Unpack from binary
@@ -832,22 +938,28 @@ deserializeBlob(bytes)   // Unpack from binary
 
 ```typescript
 checkPrfSupport()                  // Detect PRF capability
-registerPasskey(options)           // Create passkey + get PRF (pubkey stored as user.id)
+registerPasskey(options)           // Create passkey + get PRF (PRF mode)
+registerKihPasskey(options)        // Create passkey with key-in-handle (KiH mode)
 authenticatePasskey(options)       // Assert known passkey + get PRF
-discoverPasskey(options?)          // Discoverable auth (two-step) — returns pubkey + PRF + credentialId
+discoverPasskey(options?)          // Discoverable auth (two-step PRF)
+unifiedDiscover(options?)          // Auto-detect PRF vs KiH from userHandle
+generateKihUserId()                // Generate 33-byte KiH user.id
+detectMode(userHandle)             // Detect 'prf' | 'kih' from userHandle
+extractKihKey(userHandle)          // Extract 32-byte key from KiH userHandle
 ```
 
 ### Nostr
 
 ```typescript
-generateNsec()                     // Random private key
-nsecToPublicKey(nsec)              // Derive public key
-encodeNsec(bytes) / decodeNsec(s)  // Bech32 nsec
-encodeNpub(bytes) / decodeNpub(s)  // Bech32 npub
-nsecToNpub(bytes)                  // Shortcut
-nsecToHexPubkey(bytes)             // Hex public key
-buildKeytrEvent(options)           // Build kind:31777
-parseKeytrEvent(event)             // Parse kind:31777
-publishKeytrEvent(event, relays)   // Publish to relays
-fetchKeytrEvents(pubkey, relays)   // Fetch from relays
+generateNsec()                       // Random private key
+nsecToPublicKey(nsec)                // Derive public key
+encodeNsec(bytes) / decodeNsec(s)    // Bech32 nsec
+encodeNpub(bytes) / decodeNpub(s)    // Bech32 npub
+nsecToNpub(bytes)                    // Shortcut
+nsecToHexPubkey(bytes)               // Hex public key
+buildKeytrEvent(options)             // Build kind:31777 (supports version option)
+parseKeytrEvent(event)               // Parse kind:31777 (returns mode)
+publishKeytrEvent(event, relays)     // Publish to relays
+fetchKeytrEvents(pubkey, relays)     // Fetch by pubkey
+fetchKeytrEventByDTag(dTag, relays)  // Fetch by #d tag (KiH discoverable login)
 ```

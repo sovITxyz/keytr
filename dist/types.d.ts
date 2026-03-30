@@ -1,7 +1,17 @@
-/** Blob version for the encrypted nsec format */
+/** AAD version byte for PRF mode (original) */
 export declare const KEYTR_VERSION = 1;
+/** AAD version byte for Key-in-Handle (KiH) mode */
+export declare const KEYTR_KIH_VERSION = 3;
+/** Size of the random encryption key embedded in KiH user.id */
+export declare const KIH_KEY_SIZE = 32;
+/** Total size of KiH user.id: mode byte (0x03) + 32-byte key */
+export declare const KIH_USER_ID_SIZE = 33;
+/** Mode prefix byte written as user.id[0] in KiH mode */
+export declare const KIH_MODE_BYTE = 3;
+/** PRF mode user.id size (32-byte pubkey) */
+export declare const PRF_USER_ID_SIZE = 32;
 /** Nostr event kind for passkey-encrypted private keys */
-export declare const KEYTR_EVENT_KIND = 30079;
+export declare const KEYTR_EVENT_KIND = 31777;
 /** PRF salt used during WebAuthn ceremonies */
 export declare const PRF_SALT: Uint8Array<ArrayBuffer>;
 /** HKDF info string for key derivation */
@@ -13,7 +23,7 @@ export declare const HKDF_INFO = "keytr nsec encryption v1";
  *
  * The gateway model is federated: multiple independent domains can each
  * authorize their own set of origins. Users encrypt their nsec once per
- * gateway (or standalone rpId), producing separate kind:30079 events.
+ * gateway (or standalone rpId), producing separate kind:31777 events.
  * Any client sharing the same rpId can decrypt the matching event.
  */
 export declare const DEFAULT_RP_ID = "keytr.org";
@@ -39,7 +49,7 @@ export interface EncryptedNsecBlob {
     hkdfSalt: Uint8Array;
     ciphertext: Uint8Array;
 }
-/** A kind:30079 event payload (before signing) */
+/** A kind:31777 event payload (before signing) */
 export interface KeytrEventTemplate {
     kind: typeof KEYTR_EVENT_KIND;
     content: string;
@@ -51,12 +61,16 @@ export interface EncryptOptions {
     nsecBytes: Uint8Array;
     prfOutput: Uint8Array;
     credentialId: Uint8Array;
+    /** AAD version byte. Defaults to KEYTR_VERSION (1) for PRF, use KEYTR_KIH_VERSION (3) for KiH. */
+    aadVersion?: number;
 }
 /** Options for decrypting an nsec */
 export interface DecryptOptions {
     encryptedBlob: string;
     prfOutput: Uint8Array;
     credentialId: Uint8Array;
+    /** AAD version byte. Defaults to KEYTR_VERSION (1) for PRF, use KEYTR_KIH_VERSION (3) for KiH. */
+    aadVersion?: number;
 }
 /** PRF support detection result */
 export interface PrfSupportInfo {
@@ -96,7 +110,7 @@ export interface DiscoverOptions {
     /** WebAuthn ceremony timeout in milliseconds. Defaults to 120000 (2 minutes). */
     timeout?: number;
 }
-/** Result of discoverable passkey authentication */
+/** Result of discoverable passkey authentication (PRF mode) */
 export interface DiscoverResult {
     /** Hex-encoded Nostr public key recovered from WebAuthn userHandle */
     pubkey: string;
@@ -104,6 +118,36 @@ export interface DiscoverResult {
     prfOutput: Uint8Array;
     /** Raw credential ID */
     credentialId: Uint8Array;
+}
+/** Encryption mode: PRF (authenticator-derived key) or KiH (key-in-handle) */
+export type KeytrMode = 'prf' | 'kih';
+/** Result of unified discoverable authentication (auto-detects PRF vs KiH) */
+export interface UnifiedDiscoverResult {
+    /** Detected mode based on userHandle length */
+    mode: KeytrMode;
+    /** 32-byte key material (PRF output or KiH handle key) */
+    keyMaterial: Uint8Array;
+    /** Raw credential ID */
+    credentialId: Uint8Array;
+    /** AAD version byte for this mode */
+    aadVersion: number;
+    /** Hex-encoded pubkey — only available in PRF mode (from userHandle) */
+    pubkey?: string;
+}
+/** Options for KiH passkey registration (no PRF extension needed) */
+export interface KihRegisterOptions {
+    rpId?: string;
+    rpName?: string;
+    userName: string;
+    userDisplayName: string;
+    /** WebAuthn ceremony timeout in milliseconds. Defaults to 120000 (2 minutes). */
+    timeout?: number;
+}
+/** Result of KiH passkey registration */
+export interface KihRegisterResult {
+    credential: KeytrCredential;
+    /** 32-byte random key extracted from user.id for encryption */
+    handleKey: Uint8Array;
 }
 /** Passkey authentication options for decryption */
 export interface AuthenticateOptions {

@@ -103,3 +103,60 @@ export async function fetchKeytrEvents(
 
   return events
 }
+
+/**
+ * Fetch a kind:31777 event by its #d tag (base64url credential ID).
+ * Used for KiH mode where we don't have the pubkey upfront.
+ * Returns the first matching event, or null if none found.
+ */
+export async function fetchKeytrEventByDTag(
+  dTag: string,
+  relayUrls: string[],
+  options?: RelayOptions
+): Promise<Event | null> {
+  const timeout = options?.timeout ?? 5000
+
+  const results = await Promise.allSettled(
+    relayUrls.map(async (url) => {
+      const relay = await connectWithTimeout(url, timeout)
+      try {
+        return await new Promise<Event | null>((resolve) => {
+          let found: Event | null = null
+          const sub = relay.subscribe(
+            [{ kinds: [KEYTR_EVENT_KIND], '#d': [dTag] }],
+            {
+              onevent(evt) {
+                // Take the most recent (replaceable events: last write wins)
+                if (!found || evt.created_at > found.created_at) {
+                  found = evt
+                }
+              },
+              oneose() {
+                sub.close()
+                resolve(found)
+              },
+            }
+          )
+          setTimeout(() => {
+            sub.close()
+            resolve(found)
+          }, timeout)
+        })
+      } finally {
+        relay.close()
+      }
+    })
+  )
+
+  // Return the most recent event across all relays
+  let best: Event | null = null
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value) {
+      if (!best || result.value.created_at > best.created_at) {
+        best = result.value
+      }
+    }
+  }
+
+  return best
+}
