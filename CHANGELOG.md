@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.5.0] - 2026-03-29
 
 ### Added
 - **Key-in-Handle (KiH) mode** — PRF-free passwordless passkey encryption. A random 256-bit encryption key is stored in the passkey's `user.id` field (`[0x03 || key]`, 33 bytes). Works with **all** authenticators including password manager extensions (1Password, Bitwarden, Dashlane) that don't support PRF. Always 1 biometric prompt.
