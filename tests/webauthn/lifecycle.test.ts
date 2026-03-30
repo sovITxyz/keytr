@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { randomBytes, bytesToHex } from '@noble/hashes/utils.js'
 import { base64url } from '@scure/base'
-import { PRF_SALT } from '../../src/types.js'
+import { PRF_SALT, KIH_MODE_BYTE, KIH_USER_ID_SIZE, KEYTR_KIH_VERSION, KEYTR_VERSION } from '../../src/types.js'
 
 const TEST_PUBKEY = bytesToHex(randomBytes(32))
 
@@ -357,5 +357,75 @@ describe('WebAuthn credential lifecycle', () => {
     })
 
     expect(decrypted).toEqual(nsecBytes)
+  })
+
+  it('unifiedDiscover detects KiH mode from 33-byte userHandle', async () => {
+    const kihKey = randomBytes(32)
+    const kihUserId = new Uint8Array(KIH_USER_ID_SIZE)
+    kihUserId[0] = KIH_MODE_BYTE
+    kihUserId.set(kihKey, 1)
+    const credRawId = randomBytes(16)
+
+    const getMock = vi.fn().mockResolvedValue({
+      type: 'public-key',
+      rawId: credRawId.buffer.slice(0),
+      response: {
+        userHandle: kihUserId.buffer.slice(0),
+      },
+      getClientExtensionResults: () => ({}),
+    })
+
+    setupGlobals({ get: getMock })
+
+    const { unifiedDiscover } = await import('../../src/webauthn/authenticate.js')
+    const result = await unifiedDiscover()
+
+    expect(result.mode).toBe('kih')
+    expect(result.keyMaterial).toEqual(kihKey)
+    expect(result.credentialId).toEqual(credRawId)
+    expect(result.aadVersion).toBe(KEYTR_KIH_VERSION)
+    expect(result.pubkey).toBeUndefined()
+    // Only 1 ceremony — no step 2 needed for KiH
+    expect(getMock).toHaveBeenCalledOnce()
+  })
+
+  it('unifiedDiscover detects PRF mode from 32-byte userHandle', async () => {
+    const prfOutput = makePrfOutput()
+    const credRawId = randomBytes(16)
+    const userHandle = randomBytes(32) // 32-byte pubkey
+
+    let callCount = 0
+    const getMock = vi.fn().mockImplementation(() => {
+      callCount++
+      if (callCount === 1) {
+        return Promise.resolve({
+          type: 'public-key',
+          rawId: credRawId.buffer.slice(0),
+          response: { userHandle: userHandle.buffer.slice(0) },
+          getClientExtensionResults: () => ({}),
+        })
+      }
+      return Promise.resolve({
+        type: 'public-key',
+        rawId: credRawId.buffer.slice(0),
+        response: {},
+        getClientExtensionResults: () => ({
+          prf: { results: { first: prfOutput.buffer.slice(0) } },
+        }),
+      })
+    })
+
+    setupGlobals({ get: getMock })
+
+    const { unifiedDiscover } = await import('../../src/webauthn/authenticate.js')
+    const result = await unifiedDiscover()
+
+    expect(result.mode).toBe('prf')
+    expect(result.keyMaterial).toEqual(prfOutput)
+    expect(result.credentialId).toEqual(credRawId)
+    expect(result.aadVersion).toBe(KEYTR_VERSION)
+    expect(result.pubkey).toBe(bytesToHex(userHandle))
+    // PRF requires step 2
+    expect(getMock).toHaveBeenCalledTimes(2)
   })
 })

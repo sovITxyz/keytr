@@ -4,10 +4,18 @@ Passkey login for Nostr. Encrypt your nsec with a WebAuthn passkey, publish to r
 
 ## How it works
 
-Register a passkey, encrypt your nsec with the passkey's PRF output, publish the ciphertext to Nostr relays. On any device with the synced passkey, tap to decrypt — no npub input needed, no localStorage, no manual key copying.
+Register a passkey, encrypt your nsec, publish the ciphertext to Nostr relays. On any device with the synced passkey, tap to decrypt — no npub input needed, no localStorage, no manual key copying.
+
+keytr supports two encryption modes:
+
+- **PRF mode** — the passkey's PRF extension produces a deterministic secret for key derivation. Strongest security (hardware-bound), but requires PRF-capable authenticators.
+- **KiH mode** (Key-in-Handle) — a random 256-bit encryption key is stored in the passkey's `user.id` field. Works with **all** authenticators including password manager extensions (1Password, Bitwarden, Dashlane) that don't support PRF. Always 1 biometric prompt.
+
+Both modes use the same crypto pipeline: HKDF-SHA256 + AES-256-GCM. The unified `setup()` API tries PRF first and falls back to KiH automatically.
 
 ```
-Passkey PRF → HKDF-SHA256 → AES-256-GCM → kind:31777 event → relay
+PRF mode:  Passkey PRF → HKDF-SHA256 → AES-256-GCM → kind:31777 (v=1) → relay
+KiH mode:  Random key in user.id → HKDF-SHA256 → AES-256-GCM → kind:31777 (v=3) → relay
 ```
 
 Cross-client login works via a [federated gateway model](docs/architecture.md#federated-gateway-model) — any domain can authorize a set of Nostr clients to share passkey access using WebAuthn [Related Origin Requests](https://w3c.github.io/webauthn/#sctn-related-origins). The two official gateways (`keytr.org` on Cloudflare, `nostkey.org` on Hostinger) trust each other bidirectionally, so a passkey registered under either rpId works on both sites and all authorized client origins.
@@ -27,16 +35,19 @@ npm install @sovit.xyz/keytr
 
 ## Quick start
 
-### Setup (new user)
+### Setup (new user — unified API)
 
 ```typescript
-import { setupKeytr, publishKeytrEvent } from '@sovit.xyz/keytr'
+import { setup, publishKeytrEvent } from '@sovit.xyz/keytr'
 import { finalizeEvent } from 'nostr-tools/pure'
 
-const { credential, encryptedBlob, eventTemplate, nsecBytes, npub } = await setupKeytr({
+// Tries PRF first, falls back to KiH if authenticator doesn't support PRF
+const { credential, encryptedBlob, eventTemplate, nsecBytes, npub, mode } = await setup({
   userName: 'alice',
   userDisplayName: 'Alice',
 })
+
+console.log(`Registered in ${mode} mode`) // 'prf' or 'kih'
 
 // Sign and publish
 const signedEvent = finalizeEvent(eventTemplate, nsecBytes)
@@ -46,16 +57,18 @@ await publishKeytrEvent(signedEvent, ['wss://relay.damus.io'])
 ### Login (discoverable — no npub needed)
 
 ```typescript
-import { discoverAndLogin } from '@sovit.xyz/keytr'
+import { discover } from '@sovit.xyz/keytr'
 
-// Browser shows available passkeys, user picks one, nsec is recovered
-const { nsecBytes, npub, pubkey } = await discoverAndLogin(
+// Browser shows passkeys, user picks one, mode auto-detected from userHandle
+const { nsecBytes, npub, pubkey, mode } = await discover(
   ['wss://relay.damus.io'],
   { rpId: 'keytr.org' }
 )
+
+console.log(`Logged in via ${mode} mode`) // 'prf' or 'kih'
 ```
 
-### Login (known pubkey)
+### Login (known pubkey — PRF mode only)
 
 ```typescript
 import { loginWithKeytr, fetchKeytrEvents } from '@sovit.xyz/keytr'
@@ -64,31 +77,36 @@ const events = await fetchKeytrEvents(pubkey, ['wss://relay.damus.io'])
 const { nsecBytes, npub } = await loginWithKeytr(events)
 ```
 
+The previous `setupKeytr()` and `discoverAndLogin()` functions remain available for backward compatibility.
+
 ## Compatibility
 
-keytr requires the WebAuthn [PRF extension](https://w3c.github.io/webauthn/#prf-extension) and [discoverable credentials](https://w3c.github.io/webauthn/#client-side-discoverable-credential). PRF is the primary compatibility gate.
+keytr requires [discoverable credentials](https://w3c.github.io/webauthn/#client-side-discoverable-credential). PRF mode additionally requires the [PRF extension](https://w3c.github.io/webauthn/#prf-extension). KiH mode works without PRF.
 
 ### Browsers
 
-| Browser | Min Version | PRF | Discoverable Login | Notes |
-|---------|-------------|-----|--------------------|-------|
-| Chrome (Desktop) | 116+ | Yes | Yes | |
-| Chrome (Android) | 116+ | Yes | Yes | Requires Google Password Manager or PRF-capable security key |
-| Edge | 116+ | Yes | Yes | Chromium-based, same support as Chrome |
-| Safari | 18+ | Yes | Two-step | iOS/iPadOS: PRF unavailable during discovery — keytr handles this automatically |
-| Firefox | 122+ | Yes | Yes | |
-| Firefox Android | — | No | — | PRF not supported |
+| Browser | Min Version | PRF Mode | KiH Mode | Discoverable Login | Notes |
+|---------|-------------|----------|----------|--------------------|-------|
+| Chrome (Desktop) | 116+ | Yes | Yes | Yes | |
+| Chrome (Android) | 116+ | Yes | Yes | Yes | |
+| Edge | 116+ | Yes | Yes | Yes | Chromium-based |
+| Safari | 18+ | Yes | Yes | Yes | Two-step for PRF discovery; KiH is single-step |
+| Firefox | 122+ | Yes | Yes | Yes | |
+| Firefox Android | — | No | Yes | Yes | PRF not supported — KiH fallback works |
 
 ### Authenticators
 
-| Authenticator | PRF | Notes |
-|---------------|-----|-------|
-| iCloud Keychain | Yes | macOS 15+ / iOS 18+ |
-| Google Password Manager | Yes | Android 14+ / Chrome 116+ |
-| Windows Hello | Yes | Windows 10 22H2+ / Chrome 116+ |
-| YubiKey 5 (firmware 5.7+) | Yes | Via `hmac-secret` → PRF bridge |
-| YubiKey 5 (firmware < 5.7) | No | No PRF / hmac-secret support |
-| Older security keys | No | Require PRF-capable firmware |
+| Authenticator | PRF Mode | KiH Mode | Notes |
+|---------------|----------|----------|-------|
+| iCloud Keychain | Yes | Yes | macOS 15+ / iOS 18+ |
+| Google Password Manager | Yes | Yes | Android 14+ / Chrome 116+ |
+| Windows Hello | Yes | Yes | Windows 10 22H2+ / Chrome 116+ |
+| YubiKey 5 (firmware 5.7+) | Yes | Yes | PRF via `hmac-secret` bridge |
+| YubiKey 5 (firmware < 5.7) | No | Yes | KiH fallback works |
+| 1Password | No | Yes | No PRF support — KiH mode only |
+| Bitwarden | No | Yes | No PRF support — KiH mode only |
+| Dashlane | No | Yes | No PRF support — KiH mode only |
+| Older security keys | No | Yes | KiH works with any WebAuthn authenticator |
 
 ### Federated gateways
 
@@ -101,15 +119,20 @@ Cross-client login via [Related Origin Requests](https://w3c.github.io/webauthn/
 | Safari | Yes | 18+ |
 | Firefox | No | Not yet supported |
 
-Use `checkPrfSupport()` at runtime to detect whether the current browser + authenticator combination supports PRF before showing passkey UI.
+Use `checkPrfSupport()` at runtime to detect PRF capability. The unified `setup()` API automatically falls back to KiH when PRF is unavailable.
 
 ## Security properties
 
-- **Hardware-bound** — PRF output requires physical authenticator + biometric/PIN
-- **Origin-bound** — phishing sites on different domains get useless PRF output
-- **AAD-bound** — ciphertext tied to specific credential ID and version
-- **No server trust** — relay is a dumb store, encryption is end-to-end
-- **Memory hygiene** — PRF output and derived keys zeroed after use
+| Property | PRF Mode | KiH Mode |
+|----------|----------|----------|
+| **Hardware-bound** | Yes — PRF output requires authenticator + biometric | Partially — key stored in passkey credential |
+| **Origin-bound** | Yes — different domains get different PRF output | Yes — passkey still bound to rpId |
+| **AAD-bound** | `"keytr" \|\| 0x01 \|\| credentialId` | `"keytr" \|\| 0x03 \|\| credentialId` |
+| **Cross-mode isolation** | AAD version byte prevents KiH blobs decrypting as PRF | AAD version byte prevents PRF blobs decrypting as KiH |
+| **No server trust** | Relay is a dumb store, encryption is end-to-end | Same |
+| **Memory hygiene** | Keys zeroed after use | Same |
+
+KiH mode trades PRF's hardware-bound key derivation for universal authenticator compatibility. The encryption key is a random 256-bit value stored in the passkey's `user.id` field — still protected by the passkey's biometric/PIN requirement, but extractable by the authenticator (unlike PRF output which never leaves the hardware).
 
 ## License
 

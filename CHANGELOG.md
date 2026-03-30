@@ -6,9 +6,26 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Key-in-Handle (KiH) mode** — PRF-free passwordless passkey encryption. A random 256-bit encryption key is stored in the passkey's `user.id` field (`[0x03 || key]`, 33 bytes). Works with **all** authenticators including password manager extensions (1Password, Bitwarden, Dashlane) that don't support PRF. Always 1 biometric prompt.
+- **Unified `setup()` API** — tries PRF registration first, falls back to KiH if `PrfNotSupportedError` is thrown. Returns `mode: 'prf' | 'kih'`.
+- **Unified `discover()` API** — auto-detects mode from `userHandle` length (32 bytes = PRF, 33 bytes with `0x03` prefix = KiH). KiH discovery completes in 1 prompt (no step-2 PRF assertion needed).
+- `registerKihPasskey()` — KiH-specific registration (no PRF extension, single ceremony)
+- `unifiedDiscover()` — low-level unified discoverable authentication
+- `fetchKeytrEventByDTag()` — relay query by `#d` tag for KiH mode (no pubkey needed)
+- `generateKihUserId()`, `detectMode()`, `extractKihKey()` — KiH user.id helpers
+- `buildAad()` — now exported, accepts version parameter
+- `KEYTR_KIH_VERSION`, `KIH_KEY_SIZE`, `KIH_USER_ID_SIZE`, `KIH_MODE_BYTE`, `PRF_USER_ID_SIZE` constants
+- `KeytrMode`, `UnifiedDiscoverResult`, `KihRegisterOptions`, `KihRegisterResult`, `SetupOptions`, `SetupResult`, `DiscoverLoginResult` types
+- `aadVersion` option on `EncryptOptions` and `DecryptOptions` — AAD version byte `0x03` for KiH prevents cross-mode decryption
+- `version` option on `BuildEventOptions` — `v=3` tag for KiH events
+- `mode` field on `ParsedKeytrEvent` — detected from `v` tag (`1` = PRF, `3` = KiH)
+
 ### Changed
 - **Parallel relay operations** — `publishKeytrEvent` and `fetchKeytrEvents` now query all relays concurrently via `Promise.allSettled()` instead of sequentially, reducing worst-case latency from `N × timeout` to `1 × timeout`
 - **Upgraded to noble/scure v2** — `@noble/ciphers` ^2.1.0, `@noble/hashes` ^2.0.0, `@scure/base` ^2.0.0
+- `buildAad()` in `encrypt.ts` is now exported and parameterized by version (was private, hardcoded to `KEYTR_VERSION`)
+- `decrypt.ts` imports shared `buildAad` from `encrypt.ts` instead of duplicating it
 
 ## [0.3.1] - 2026-03-28
 

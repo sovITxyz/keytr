@@ -9,7 +9,7 @@ vi.mock('nostr-tools/relay', () => ({
   },
 }))
 
-import { publishKeytrEvent, fetchKeytrEvents } from '../../src/nostr/relay.js'
+import { publishKeytrEvent, fetchKeytrEvents, fetchKeytrEventByDTag } from '../../src/nostr/relay.js'
 import { Relay } from 'nostr-tools/relay'
 
 const mockRelay = Relay as unknown as { connect: ReturnType<typeof vi.fn> }
@@ -224,5 +224,78 @@ describe('fetchKeytrEvents', () => {
 
     // Should still get the event after timeout resolves
     expect(result).toHaveLength(1)
+  })
+})
+
+describe('fetchKeytrEventByDTag', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('fetches an event by d tag', async () => {
+    const event = fakeEvent({ tags: [['d', 'my-cred-id'], ['rp', 'keytr.org']] })
+    const subClose = vi.fn()
+
+    mockRelay.connect.mockResolvedValue({
+      subscribe: vi.fn().mockImplementation((filters, callbacks) => {
+        // Verify the filter uses #d
+        expect(filters[0]['#d']).toEqual(['my-cred-id'])
+        queueMicrotask(() => {
+          callbacks.onevent(event)
+          callbacks.oneose()
+        })
+        return { close: subClose }
+      }),
+      close: vi.fn(),
+    })
+
+    const result = await fetchKeytrEventByDTag('my-cred-id', ['wss://relay.example'])
+    expect(result).toEqual(event)
+  })
+
+  it('returns null when no event matches', async () => {
+    mockRelay.connect.mockResolvedValue({
+      subscribe: vi.fn().mockImplementation((_filters, callbacks) => {
+        queueMicrotask(() => callbacks.oneose())
+        return { close: vi.fn() }
+      }),
+      close: vi.fn(),
+    })
+
+    const result = await fetchKeytrEventByDTag('nonexistent', ['wss://relay.example'])
+    expect(result).toBeNull()
+  })
+
+  it('returns the most recent event across relays', async () => {
+    const older = fakeEvent({ id: 'old', created_at: 1700000000 })
+    const newer = fakeEvent({ id: 'new', created_at: 1700001000 })
+    let callCount = 0
+
+    mockRelay.connect.mockImplementation(async () => ({
+      subscribe: vi.fn().mockImplementation((_filters, callbacks) => {
+        const evt = callCount === 0 ? older : newer
+        callCount++
+        queueMicrotask(() => {
+          callbacks.onevent(evt)
+          callbacks.oneose()
+        })
+        return { close: vi.fn() }
+      }),
+      close: vi.fn(),
+    }))
+
+    const result = await fetchKeytrEventByDTag('cred', [
+      'wss://relay1.example',
+      'wss://relay2.example',
+    ])
+
+    expect(result?.id).toBe('new')
+  })
+
+  it('returns null when all relays fail', async () => {
+    mockRelay.connect.mockRejectedValue(new Error('connection refused'))
+
+    const result = await fetchKeytrEventByDTag('cred', ['wss://dead.example'])
+    expect(result).toBeNull()
   })
 })

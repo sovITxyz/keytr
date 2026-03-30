@@ -1,4 +1,4 @@
-import type { AuthenticateOptions, DiscoverOptions, DiscoverResult } from '../types.js';
+import type { AuthenticateOptions, DiscoverOptions, DiscoverResult, UnifiedDiscoverResult } from '../types.js';
 /**
  * Authenticate with an existing passkey and obtain the PRF output
  * for decrypting the nsec.
@@ -23,4 +23,16 @@ export declare function authenticatePasskey(options: AuthenticateOptions): Promi
  * @returns The recovered pubkey, PRF output, and credential ID
  */
 export declare function discoverPasskey(options?: DiscoverOptions): Promise<DiscoverResult>;
+/**
+ * Unified discoverable authentication — auto-detects PRF vs KiH mode.
+ *
+ * Step 1: Discovery assertion (no PRF, empty allowCredentials).
+ *   - If userHandle is 33 bytes with 0x03 prefix → KiH mode. Done in 1 prompt.
+ *   - If userHandle is 32 bytes → PRF mode. Needs step 2 for PRF output.
+ *
+ * Step 2 (PRF only): Targeted assertion with PRF extension to get key material.
+ *
+ * @returns Mode, key material, credential ID, and AAD version
+ */
+export declare function unifiedDiscover(options?: DiscoverOptions): Promise<UnifiedDiscoverResult>;
 //# sourceMappingURL=authenticate.d.ts.map

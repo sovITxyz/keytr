@@ -29,7 +29,7 @@ export async function publishKeytrEvent(event, relayUrls, options) {
         throw new RelayError(`Failed to publish to any relay:\n${errors.join('\n')}`);
     }
 }
-/** Fetch all kind:30079 events for a given pubkey from relays */
+/** Fetch all kind:31777 events for a given pubkey from relays */
 export async function fetchKeytrEvents(pubkey, relayUrls, options) {
     const timeout = options?.timeout ?? 5000;
     const results = await Promise.allSettled(relayUrls.map(async (url) => {
@@ -69,5 +69,50 @@ export async function fetchKeytrEvents(pubkey, relayUrls, options) {
         }
     }
     return events;
+}
+/**
+ * Fetch a kind:31777 event by its #d tag (base64url credential ID).
+ * Used for KiH mode where we don't have the pubkey upfront.
+ * Returns the first matching event, or null if none found.
+ */
+export async function fetchKeytrEventByDTag(dTag, relayUrls, options) {
+    const timeout = options?.timeout ?? 5000;
+    const results = await Promise.allSettled(relayUrls.map(async (url) => {
+        const relay = await connectWithTimeout(url, timeout);
+        try {
+            return await new Promise((resolve) => {
+                let found = null;
+                const sub = relay.subscribe([{ kinds: [KEYTR_EVENT_KIND], '#d': [dTag] }], {
+                    onevent(evt) {
+                        // Take the most recent (replaceable events: last write wins)
+                        if (!found || evt.created_at > found.created_at) {
+                            found = evt;
+                        }
+                    },
+                    oneose() {
+                        sub.close();
+                        resolve(found);
+                    },
+                });
+                setTimeout(() => {
+                    sub.close();
+                    resolve(found);
+                }, timeout);
+            });
+        }
+        finally {
+            relay.close();
+        }
+    }));
+    // Return the most recent event across all relays
+    let best = null;
+    for (const result of results) {
+        if (result.status === 'fulfilled' && result.value) {
+            if (!best || result.value.created_at > best.created_at) {
+                best = result.value;
+            }
+        }
+    }
+    return best;
 }
 //# sourceMappingURL=relay.js.map

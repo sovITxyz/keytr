@@ -7,14 +7,14 @@ import { deriveKey } from './kdf.js';
 import { serializeBlob } from './blob.js';
 /**
  * Build the Additional Authenticated Data (AAD) for AES-GCM.
- * AAD binds ciphertext to the credential ID and version,
- * preventing substitution attacks.
+ * AAD = "keytr" || version_byte || credentialId
+ * Version byte prevents cross-mode decryption (0x01=PRF, 0x03=KiH).
  */
-function buildAad(credentialId) {
+export function buildAad(credentialId, version = KEYTR_VERSION) {
     const prefix = new TextEncoder().encode('keytr');
     const aad = new Uint8Array(prefix.length + 1 + credentialId.length);
     aad.set(prefix, 0);
-    aad[prefix.length] = KEYTR_VERSION;
+    aad[prefix.length] = version;
     aad.set(credentialId, prefix.length + 1);
     return aad;
 }
@@ -31,7 +31,7 @@ export function encryptNsec(options) {
     const iv = randomBytes(12);
     const hkdfSalt = randomBytes(32);
     const key = deriveKey(prfOutput, hkdfSalt);
-    const aad = buildAad(credentialId);
+    const aad = buildAad(credentialId, options.aadVersion ?? KEYTR_VERSION);
     try {
         const cipher = gcm(key, iv, aad);
         const ciphertext = cipher.encrypt(nsecBytes);

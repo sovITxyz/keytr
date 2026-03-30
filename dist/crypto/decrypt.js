@@ -4,17 +4,7 @@ import { KEYTR_VERSION } from '../types.js';
 import { DecryptionError } from '../errors.js';
 import { deriveKey } from './kdf.js';
 import { deserializeBlob } from './blob.js';
-/**
- * Rebuild the AAD for verification (must match what was used during encryption).
- */
-function buildAad(credentialId) {
-    const prefix = new TextEncoder().encode('keytr');
-    const aad = new Uint8Array(prefix.length + 1 + credentialId.length);
-    aad.set(prefix, 0);
-    aad[prefix.length] = KEYTR_VERSION;
-    aad.set(credentialId, prefix.length + 1);
-    return aad;
-}
+import { buildAad } from './encrypt.js';
 /**
  * Decrypt a base64-encoded encrypted nsec blob using a PRF-derived key.
  *
@@ -31,7 +21,7 @@ export function decryptNsec(options) {
     }
     const blob = deserializeBlob(blobBytes);
     const key = deriveKey(prfOutput, blob.hkdfSalt);
-    const aad = buildAad(credentialId);
+    const aad = buildAad(credentialId, options.aadVersion ?? KEYTR_VERSION);
     try {
         const cipher = gcm(key, blob.iv, aad);
         const nsecBytes = cipher.decrypt(blob.ciphertext);

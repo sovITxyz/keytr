@@ -1,12 +1,14 @@
-import { type KeytrEventTemplate, type KeytrCredential } from '../types.js';
+import { type KeytrEventTemplate, type KeytrCredential, type KeytrMode } from '../types.js';
 interface BuildEventOptions {
     credential: KeytrCredential;
     encryptedBlob: string;
     clientName?: string;
+    /** Version tag value. Defaults to '1' (PRF). Use '3' for KiH mode. */
+    version?: string;
 }
-/** Build an unsigned kind:30079 event template for a passkey-encrypted nsec */
+/** Build an unsigned kind:31777 event template for a passkey-encrypted nsec */
 export declare function buildKeytrEvent(options: BuildEventOptions): KeytrEventTemplate;
-interface ParsedKeytrEvent {
+export interface ParsedKeytrEvent {
     credentialIdBase64url: string;
     credentialId: Uint8Array;
     rpId: string;
@@ -16,8 +18,10 @@ interface ParsedKeytrEvent {
     kdf: string;
     transports: string[];
     clientName?: string;
+    /** Detected encryption mode based on the v tag */
+    mode: KeytrMode;
 }
-/** Parse a kind:30079 event to extract credential info and encrypted blob */
+/** Parse a kind:31777 event to extract credential info and encrypted blob */
 export declare function parseKeytrEvent(event: {
     kind: number;
     content: string;
