@@ -8,7 +8,7 @@ keytr implements NIP-K1 — passkey-encrypted private keys. A user's nsec is enc
 - Full NIP-K1 implementation (encrypt, decrypt, event publish/fetch)
 - **Two encryption modes**: PRF (hardware-bound key) and KiH (key-in-handle, universal compatibility)
 - **Unified API**: `setup()` tries PRF first, falls back to KiH; `discover()` auto-detects mode
-- **Password manager extension support**: 1Password, Bitwarden, Dashlane work via KiH mode
+- **Password manager support**: 1Password and Bitwarden now support PRF; Dashlane PRF in beta; all work via KiH fallback
 - Discoverable login (no prior pubkey needed)
 - Parallel relay operations
 - Cross-gateway support via Related Origin Requests
@@ -38,10 +38,10 @@ The ideal end-state: store the signed kind:31777 event inside the passkey itself
 | YubiKey 5 (firmware 5.7+) | Yes | CTAP 2.1, max 4096 bytes |
 | iCloud Keychain | Yes | Since iOS 17 / macOS Sonoma / Safari 17 |
 | Google Password Manager | **No** | Supports PRF but not largeBlob |
-| Windows Hello | **No** | No credential management or largeBlob |
-| 1Password | **No** | No largeBlob support |
-| Bitwarden | **No** | No largeBlob support |
-| Dashlane | **No** | No largeBlob support |
+| Windows Hello | **No** | No largeBlob support |
+| 1Password | **No** | Supports PRF but not largeBlob |
+| Bitwarden | **No** | Supports PRF but not largeBlob |
+| Dashlane | **No** | PRF in beta; no largeBlob support |
 
 | Browser | largeBlob | Notes |
 |---|---|---|

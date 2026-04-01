@@ -9,7 +9,7 @@ Register a passkey, encrypt your nsec, publish the ciphertext to Nostr relays. O
 keytr supports two encryption modes:
 
 - **PRF mode** — the passkey's PRF extension produces a deterministic secret for key derivation. Strongest security (hardware-bound), but requires PRF-capable authenticators.
-- **KiH mode** (Key-in-Handle) — a random 256-bit encryption key is stored in the passkey's `user.id` field. Works with **all** authenticators including password manager extensions (1Password, Bitwarden, Dashlane) that don't support PRF. Always 1 biometric prompt.
+- **KiH mode** (Key-in-Handle) — a random 256-bit encryption key is stored in the passkey's `user.id` field. Works with **all** authenticators, including those without PRF support (e.g., Firefox Android, older security keys). Always 1 biometric prompt.
 
 Both modes use the same crypto pipeline: HKDF-SHA256 + AES-256-GCM. The unified `setup()` API tries PRF first and falls back to KiH automatically.
 
@@ -90,9 +90,9 @@ keytr requires [discoverable credentials](https://w3c.github.io/webauthn/#client
 | Chrome (Desktop) | 116+ | Yes | Yes | Yes | |
 | Chrome (Android) | 116+ | Yes | Yes | Yes | |
 | Edge | 116+ | Yes | Yes | Yes | Chromium-based |
-| Safari | 18+ | Yes | Yes | Yes | Two-step for PRF discovery; KiH is single-step |
+| Safari | 18+ | Yes | Yes | Yes | PRF discovery requires two biometric prompts; KiH completes in one |
 | Firefox | 122+ | Yes | Yes | Yes | |
-| Firefox Android | — | No | Yes | Yes | PRF not supported — KiH fallback works |
+| Firefox Android | — | No | Yes | Yes | No PRF support — KiH fallback works |
 
 ### Authenticators
 
@@ -100,12 +100,12 @@ keytr requires [discoverable credentials](https://w3c.github.io/webauthn/#client
 |---------------|----------|----------|-------|
 | iCloud Keychain | Yes | Yes | macOS 15+ / iOS 18+ |
 | Google Password Manager | Yes | Yes | Android 14+ / Chrome 116+ |
-| Windows Hello | Yes | Yes | Windows 10 22H2+ / Chrome 116+ |
+| Windows Hello | Yes | Yes | Windows 11 25H2+ (Feb 2026 update) |
 | YubiKey 5 (firmware 5.7+) | Yes | Yes | PRF via `hmac-secret` bridge |
 | YubiKey 5 (firmware < 5.7) | No | Yes | KiH fallback works |
-| 1Password | No | Yes | No PRF support — KiH mode only |
-| Bitwarden | No | Yes | No PRF support — KiH mode only |
-| Dashlane | No | Yes | No PRF support — KiH mode only |
+| 1Password | Yes | Yes | PRF supported across platforms |
+| Bitwarden | Yes | Yes | PRF supported since 2026.1.1 (Chromium-based browsers) |
+| Dashlane | Beta | Yes | PRF in beta (browser extension only); KiH as stable fallback |
 | Older security keys | No | Yes | KiH works with any WebAuthn authenticator |
 
 ### Federated gateways
@@ -117,9 +117,9 @@ Cross-client login via [Related Origin Requests](https://w3c.github.io/webauthn/
 | Chrome | Yes | 128+ |
 | Edge | Yes | 128+ |
 | Safari | Yes | 18+ |
-| Firefox | No | Not yet supported |
+| Firefox | No | Positive standards position (March 2026); no implementation timeline |
 
-Use `checkPrfSupport()` at runtime to detect PRF capability. The unified `setup()` API automatically falls back to KiH when PRF is unavailable.
+Use `checkPrfSupport()` at runtime to detect PRF capability. The unified `setup()` API tries PRF first and automatically falls back to KiH when PRF is unavailable — no conditional logic needed in calling code.
 
 ## Security properties
 
@@ -132,7 +132,7 @@ Use `checkPrfSupport()` at runtime to detect PRF capability. The unified `setup(
 | **No server trust** | Relay is a dumb store, encryption is end-to-end | Same |
 | **Memory hygiene** | Keys zeroed after use | Same |
 
-KiH mode trades PRF's hardware-bound key derivation for universal authenticator compatibility. The encryption key is a random 256-bit value stored in the passkey's `user.id` field — still protected by the passkey's biometric/PIN requirement, but extractable by the authenticator (unlike PRF output which never leaves the hardware).
+KiH mode trades PRF's hardware-bound key derivation for universal authenticator compatibility. The encryption key is a random 256-bit value stored in the passkey's `user.id` field — still protected by the passkey's biometric/PIN requirement, but extractable by the authenticator (unlike PRF output, which never leaves the hardware). Now that most major password managers support PRF, KiH primarily serves as an automatic fallback for environments where PRF is unavailable (e.g., Firefox Android, older security keys).
 
 ## License
 

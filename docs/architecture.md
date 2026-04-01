@@ -72,7 +72,7 @@ Source: `src/crypto/decrypt.ts`
 
 ```
 Offset  Length  Field
-0       1       Version byte (0x01 for PRF, 0x01 for KiH — blob format is identical)
+0       1       Version byte (always 0x01 — blob format is identical for both modes)
 1       12      IV (AES-GCM nonce)
 13      32      HKDF salt
 45      48      Ciphertext (32-byte nsec + 16-byte GCM auth tag)
@@ -105,7 +105,7 @@ Source: `src/webauthn/prf.ts`
 
 ### Key-in-Handle (KiH) Mode
 
-KiH eliminates the PRF dependency for authenticators that don't support it (password manager extensions like 1Password, Bitwarden, Dashlane, and Firefox Android).
+KiH eliminates the PRF dependency for authenticators that don't support it (e.g., Firefox Android, older security keys, and any authenticator without the `hmac-secret` extension). Most major password managers (1Password, Bitwarden) have since added PRF support, but KiH remains the universal fallback.
 
 Instead of deriving the encryption key from PRF output, KiH embeds a random 256-bit key directly in the passkey's `user.id` field:
 
@@ -622,7 +622,7 @@ Without the browser's origin enforcement, native clients take on responsibility 
 | **No server trust** | Relay is a dumb store, end-to-end encryption | Same |
 | **Memory hygiene** | PRF output and derived keys zeroed in `finally` blocks | Same (handleKey zeroed after use) |
 | **Passkey deletion** | Permanent loss if no backup | Same |
-| **Authenticator compatibility** | Requires PRF extension (Chrome 116+, Safari 18+, etc.) | Any WebAuthn authenticator including password manager extensions |
+| **Authenticator compatibility** | Requires PRF extension (Chrome 116+, Safari 18+, etc.) | Any WebAuthn authenticator — universal fallback when PRF is unavailable |
 
 ### Password Fallback (Disabled)
 
@@ -711,9 +711,9 @@ This is the ideal end-state for backup: a single passkey that carries everything
 | iCloud Keychain | Yes | Since iOS 17 / macOS Sonoma / Safari 17 |
 | Google Password Manager | **No** | Supports PRF but not largeBlob |
 | Windows Hello | **No** | No credential management or largeBlob |
-| 1Password | **No** | No largeBlob support |
-| Bitwarden | **No** | No largeBlob support |
-| Dashlane | **No** | No largeBlob support |
+| 1Password | **No** | Supports PRF but not largeBlob |
+| Bitwarden | **No** | Supports PRF but not largeBlob |
+| Dashlane | **No** | PRF in beta; no largeBlob support |
 
 Browser support:
 
@@ -725,7 +725,7 @@ Browser support:
 
 Google Password Manager and Windows Hello together represent the majority of passkey users on Android and Windows. Excluding them makes largeBlob unviable as a primary or even secondary backup strategy.
 
-For comparison, PRF (which keytr depends on for core functionality) has much broader support — Google Password Manager, iCloud Keychain, Windows Hello (11 25H2+), and YubiKey all support it. The backup strategy should not introduce a stricter compatibility requirement than the core login flow.
+For comparison, PRF (which keytr depends on for core functionality) has much broader support — Google Password Manager, iCloud Keychain, Windows Hello (11 25H2+), YubiKey, 1Password, and Bitwarden all support it. The backup strategy should not introduce a stricter compatibility requirement than the core login flow.
 
 **Roadmap**: When largeBlob adoption reaches critical mass (particularly Google Password Manager and Windows Hello), keytr should add optional largeBlob write during registration and largeBlob read as a fallback during login. The implementation would:
 
@@ -761,6 +761,8 @@ keytr deliberately avoids these backup approaches:
 ### Password Manager Extensions Intercepting WebAuthn
 
 Browser extensions from password managers — **Bitwarden**, **1Password**, **Dashlane**, and others — can intercept `navigator.credentials.create()` and `navigator.credentials.get()` calls. These extensions register their own WebAuthn handler to offer passkey management through the password manager rather than the browser's native passkey UI.
+
+**Note**: As of early 2026, 1Password and Bitwarden support PRF, and Dashlane has PRF in beta. However, these extensions may still not support Related Origin Requests, which is the issue described here.
 
 The problem: most password manager extensions **do not support Related Origin Requests**. When keytr calls `navigator.credentials.get()` with `rpId: "keytr.org"` from an authorized client origin like `bies.sovit.xyz`, the browser would normally:
 
@@ -806,7 +808,7 @@ If all three conditions are true, the error is likely caused by extension interc
 
 #### Long-Term Outlook
 
-Password manager vendors are gradually adding Related Origin Request support. As adoption grows, this issue will diminish. In the meantime, client-side error detection and user guidance are the best mitigation.
+Password manager vendors are gradually adding PRF and Related Origin Request support. As adoption grows, this issue will diminish. In the meantime, client-side error detection and user guidance are the best mitigation.
 
 ---
 
