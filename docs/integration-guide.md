@@ -8,7 +8,7 @@ The canonical implementation of these patterns is [BIES's keytrService.js](https
 
 ## The Three-Tier Login Pattern
 
-keytr exposes two login primitives: `loginWithKeytr(events)` (known credential) and `discoverAndLogin(relays)` (discoverable). A production client should combine these into a **three-tier fallback** that gets faster over time as it builds a local credential index:
+keytr exposes two login primitives: `loginWithKeytr(events)` (known credential) and `discover(relays)` (discoverable, auto-detects PRF vs KiH). A production client should combine these into a **three-tier fallback** that gets faster over time as it builds a local credential index:
 
 ```
 Tier 1: Credential index (app-managed)
@@ -59,8 +59,8 @@ You do **not** need to store credential IDs, rpIds, or encrypted blobs — those
 
 ### When to update the index
 
-- **After registration** (`setupKeytr` or `registerPasskey`): add the pubkey.
-- **After discoverable login** (`discoverAndLogin`): add the recovered pubkey (auto-upgrade from tier 3 to tier 1).
+- **After registration** (`setup`, `setupKeytr`, or `registerPasskey`): add the pubkey.
+- **After discoverable login** (`discover` or `discoverAndLogin`): add the recovered pubkey (auto-upgrade from tier 3 to tier 1).
 - **After tier 2 login**: add the pubkey from the app's user store (auto-upgrade from tier 2 to tier 1).
 - **When the user removes their passkey**: remove the entry.
 
@@ -390,7 +390,7 @@ This creates a second kind:31777 event with a different `d` tag (different crede
 
 ### Password manager extension interference
 
-Password manager extensions (Bitwarden, 1Password, Dashlane) can intercept WebAuthn calls and reject cross-origin rpIds. Detect this and show a targeted message:
+Password manager extensions (Bitwarden, 1Password, Dashlane) can intercept WebAuthn calls and may reject cross-origin rpIds if they lack Related Origin Request support. Detect this and show a targeted message:
 
 ```javascript
 function isExtensionInterference(error) {
