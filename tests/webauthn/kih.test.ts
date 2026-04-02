@@ -30,7 +30,7 @@ describe('KiH user ID helpers', () => {
     })
 
     it('throws for unexpected length', () => {
-      expect(() => detectMode(randomBytes(16))).toThrow('Unrecognized userHandle format')
+      expect(() => detectMode(randomBytes(16))).toThrow('userHandle is 16 bytes')
     })
 
     it('throws for 33 bytes without 0x03 prefix', () => {
@@ -49,7 +49,7 @@ describe('KiH user ID helpers', () => {
     })
 
     it('throws for non-KiH handle', () => {
-      expect(() => extractKihKey(randomBytes(32))).toThrow('Not a valid KiH userHandle')
+      expect(() => extractKihKey(randomBytes(32))).toThrow('KiH userHandle is 32 bytes')
     })
 
     it('returns an independent copy (not a view)', () => {

@@ -14,6 +14,13 @@ keytr implements NIP-K1 — passkey-encrypted private keys. A user's nsec is enc
 - Cross-gateway support via Related Origin Requests
 - YubiKey compatibility (PRF assertion fallback)
 - Federated gateways: keytr.org + nostkey.org
+- **Comprehensive capability detection** via `checkCapabilities()` (`getClientCapabilities()` on Chrome 132+, feature detection fallback)
+- **Conditional UI** (passkey autofill) via `mediation: 'conditional'` option
+- **WebAuthn Signal API** for credential lifecycle management (`signalUnknownCredential`, `signalAllAcceptedCredentialIds`, `signalCurrentUserDetails`)
+- **Backup eligibility flags** (BE/BS from `authenticatorData`) on `KeytrCredential`
+- **WebAuthn Level 3 hints** parameter for authenticator routing
+- **SSR safety** — all WebAuthn functions throw early in non-browser environments
+- **user.id truncation detection** — clear errors when authenticators truncate the userHandle
 
 ---
 

@@ -52,6 +52,10 @@ export interface KeytrCredential {
   rpId: string
   transports: AuthenticatorTransport[]
   prfSupported: boolean
+  /** Whether the credential is eligible for multi-device sync (BE flag from authenticatorData) */
+  backupEligible?: boolean
+  /** Whether the credential is currently backed up / synced (BS flag from authenticatorData) */
+  backupState?: boolean
 }
 
 /** The encrypted nsec blob (parsed binary structure) */
@@ -120,6 +124,8 @@ export interface RegisterOptions {
   pubkey: string
   /** WebAuthn ceremony timeout in milliseconds. Defaults to 120000 (2 minutes). */
   timeout?: number
+  /** WebAuthn Level 3 hints to guide authenticator selection: 'security-key', 'client-device', 'hybrid' */
+  hints?: string[]
 }
 
 /** Options for discoverable passkey authentication (no prior pubkey needed) */
@@ -127,6 +133,13 @@ export interface DiscoverOptions {
   rpId?: string
   /** WebAuthn ceremony timeout in milliseconds. Defaults to 120000 (2 minutes). */
   timeout?: number
+  /**
+   * Credential mediation requirement. Set to 'conditional' for passkey autofill
+   * (requires <input autocomplete="webauthn"> in the DOM). Defaults to 'optional' (modal picker).
+   */
+  mediation?: 'silent' | 'optional' | 'conditional' | 'required'
+  /** WebAuthn Level 3 hints to guide authenticator selection: 'security-key', 'client-device', 'hybrid' */
+  hints?: string[]
 }
 
 /** Result of discoverable passkey authentication (PRF mode) */
@@ -164,6 +177,8 @@ export interface KihRegisterOptions {
   userDisplayName: string
   /** WebAuthn ceremony timeout in milliseconds. Defaults to 120000 (2 minutes). */
   timeout?: number
+  /** WebAuthn Level 3 hints to guide authenticator selection: 'security-key', 'client-device', 'hybrid' */
+  hints?: string[]
 }
 
 /** Result of KiH passkey registration */
@@ -180,6 +195,8 @@ export interface AuthenticateOptions {
   transports?: AuthenticatorTransport[]
   /** WebAuthn ceremony timeout in milliseconds. Defaults to 120000 (2 minutes). */
   timeout?: number
+  /** WebAuthn Level 3 hints to guide authenticator selection: 'security-key', 'client-device', 'hybrid' */
+  hints?: string[]
 }
 
 /** Full encrypt-and-wrap result */
@@ -187,4 +204,20 @@ export interface KeytrBundle {
   credential: KeytrCredential
   encryptedBlob: string
   eventTemplate: KeytrEventTemplate
+}
+
+/** Browser WebAuthn capability report from getClientCapabilities() */
+export interface WebAuthnCapabilities {
+  /** Whether WebAuthn is available in this environment */
+  webauthn: boolean
+  /** Whether a platform authenticator is available */
+  platformAuthenticator: boolean
+  /** PRF extension support (null = unknown, requires credential creation to confirm) */
+  prf: boolean | null
+  /** Whether conditional mediation (passkey autofill) is supported */
+  conditionalMediation: boolean
+  /** Whether Related Origin Requests are supported (cross-domain passkey use) */
+  relatedOrigins: boolean
+  /** Whether the WebAuthn Signal API is supported (credential lifecycle management) */
+  signalApi: boolean
 }

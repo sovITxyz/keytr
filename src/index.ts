@@ -15,6 +15,7 @@ export type {
   UnifiedDiscoverResult,
   KihRegisterOptions,
   KihRegisterResult,
+  WebAuthnCapabilities,
 } from './types.js'
 
 export {
@@ -48,11 +49,17 @@ export { deriveKey } from './crypto/kdf.js'
 export { serializeBlob, deserializeBlob } from './crypto/blob.js'
 
 // WebAuthn
-export { checkPrfSupport } from './webauthn/support.js'
+export { checkPrfSupport, checkCapabilities, ensureBrowser } from './webauthn/support.js'
 export { registerPasskey } from './webauthn/register.js'
 export { registerKihPasskey } from './webauthn/register-kih.js'
 export { authenticatePasskey, discoverPasskey, unifiedDiscover } from './webauthn/authenticate.js'
 export { generateKihUserId, detectMode, extractKihKey } from './webauthn/kih.js'
+export { parseBackupFlags } from './webauthn/flags.js'
+export {
+  signalUnknownCredential,
+  signalAllAcceptedCredentialIds,
+  signalCurrentUserDetails,
+} from './webauthn/signal.js'
 
 // Nostr
 export {
@@ -78,6 +85,7 @@ export { publishKeytrEvent, fetchKeytrEvents, fetchKeytrEventByDTag, type RelayO
 // ---- High-level convenience functions ----
 
 import type { RegisterOptions, DiscoverOptions, KeytrBundle, KeytrMode } from './types.js'
+import type { RelayOptions } from './nostr/relay.js'
 import { DEFAULT_RP_ID, KEYTR_KIH_VERSION } from './types.js'
 import { WebAuthnError, RelayError, KeytrError, PrfNotSupportedError } from './errors.js'
 import { registerPasskey } from './webauthn/register.js'
@@ -222,16 +230,18 @@ export async function loginWithKeytr(events: {
  */
 export async function discoverAndLogin(
   relays: string[],
-  options?: DiscoverOptions
+  options?: DiscoverOptions & { relayOptions?: RelayOptions }
 ): Promise<{ nsecBytes: Uint8Array; npub: string; pubkey: string }> {
   const { pubkey, prfOutput, credentialId } = await discoverPasskey({
     rpId: options?.rpId ?? DEFAULT_RP_ID,
     timeout: options?.timeout,
+    mediation: options?.mediation,
+    hints: options?.hints,
   })
 
   let events
   try {
-    events = await _fetchEvents(pubkey, relays)
+    events = await _fetchEvents(pubkey, relays, options?.relayOptions)
   } catch (err) {
     prfOutput.fill(0)
     throw err
@@ -281,6 +291,8 @@ export interface SetupOptions {
   userDisplayName: string
   clientName?: string
   timeout?: number
+  /** WebAuthn Level 3 hints to guide authenticator selection */
+  hints?: string[]
 }
 
 /** Result of the unified setup flow */
@@ -313,6 +325,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
       userDisplayName: options.userDisplayName,
       pubkey,
       timeout: options.timeout,
+      hints: options.hints,
     })
 
     try {
@@ -344,6 +357,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
     userName: options.userName,
     userDisplayName: options.userDisplayName,
     timeout: options.timeout,
+    hints: options.hints,
   })
 
   try {
@@ -385,11 +399,13 @@ export interface DiscoverLoginResult {
  */
 export async function discover(
   relays: string[],
-  options?: DiscoverOptions
+  options?: DiscoverOptions & { relayOptions?: RelayOptions }
 ): Promise<DiscoverLoginResult> {
   const result = await _unifiedDiscover({
     rpId: options?.rpId ?? DEFAULT_RP_ID,
     timeout: options?.timeout,
+    mediation: options?.mediation,
+    hints: options?.hints,
   })
 
   const credentialIdB64 = base64url.encode(result.credentialId)
@@ -398,14 +414,14 @@ export async function discover(
 
   if (result.mode === 'prf' && result.pubkey) {
     // PRF path: fetch by pubkey, find matching credential
-    const events = await _fetchEvents(result.pubkey, relays)
+    const events = await _fetchEvents(result.pubkey, relays, options?.relayOptions)
     event = events.find(e => {
       const dTag = e.tags.find((t: string[]) => t[0] === 'd')?.[1]
       return dTag === credentialIdB64
     }) ?? null
   } else {
     // KiH path: fetch by d-tag (no pubkey available)
-    event = await _fetchByDTag(credentialIdB64, relays)
+    event = await _fetchByDTag(credentialIdB64, relays, options?.relayOptions)
   }
 
   if (!event) {
