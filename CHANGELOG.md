@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-04-01
+
+### Added
+- **Comprehensive capability detection** — `checkCapabilities()` returns a full `WebAuthnCapabilities` report (PRF, conditional mediation, Related Origins, Signal API). Uses `PublicKeyCredential.getClientCapabilities()` (Chrome 132+) when available, falls back to feature detection.
+- **Conditional UI (passkey autofill)** — `mediation: 'conditional'` option on `discover()` and `discoverPasskey()` for inline passkey suggestions instead of the modal picker. Requires `<input autocomplete="webauthn">` in the DOM.
+- **WebAuthn Signal API** — `signalUnknownCredential()`, `signalAllAcceptedCredentialIds()`, `signalCurrentUserDetails()` for credential lifecycle management (Chrome 132+). All are no-ops on unsupported browsers.
+- **Backup eligibility flags** — `KeytrCredential` now includes `backupEligible` (BE) and `backupState` (BS) flags parsed from `authenticatorData` after registration. `parseBackupFlags()` exported from `./webauthn`.
+- **WebAuthn Level 3 hints** — `hints` parameter on `SetupOptions`, `RegisterOptions`, `KihRegisterOptions`, `AuthenticateOptions`, and `DiscoverOptions` for authenticator routing (`'security-key'`, `'client-device'`, `'hybrid'`).
+- **SSR safety** — `ensureBrowser()` guard throws `WebAuthnError` in non-browser environments. All WebAuthn functions call this internally.
+- `WebAuthnCapabilities` type
+- `checkCapabilities()` and `ensureBrowser()` exports
+
+### Changed
+- `checkPrfSupport()` now uses `getClientCapabilities()` for accurate PRF detection when available, falling back to optimistic reporting
+- `discover()` and `discoverPasskey()` now accept `mediation` and `hints` options
+- Registration functions (`registerPasskey`, `registerKihPasskey`) now parse backup flags and pass `hints` to WebAuthn ceremonies
+
 ## [0.5.0] - 2026-03-29
 
 ### Added

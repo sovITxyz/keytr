@@ -8,7 +8,7 @@ Register a passkey, encrypt your nsec, publish the ciphertext to Nostr relays. O
 
 keytr supports two encryption modes:
 
-- **PRF mode** — the passkey's PRF extension produces a deterministic secret for key derivation. Strongest security (hardware-bound), but requires PRF-capable authenticators.
+- **PRF mode** — the passkey's PRF extension produces a deterministic secret for key derivation. Strongest security (hardware-bound), requires PRF-capable authenticators.
 - **KiH mode** (Key-in-Handle) — a random 256-bit encryption key is stored in the passkey's `user.id` field. Works with **all** authenticators, including those without PRF support (e.g., Firefox Android, older security keys). Always 1 biometric prompt.
 
 Both modes use the same crypto pipeline: HKDF-SHA256 + AES-256-GCM. The unified `setup()` API tries PRF first and falls back to KiH automatically.
@@ -24,7 +24,7 @@ Cross-client login works via a [federated gateway model](docs/architecture.md#fe
 
 - [Architecture & System Design](docs/architecture.md) — detailed walkthrough of every layer: crypto, WebAuthn, Nostr integration, federated gateways, security model
 - [Integration Guide](docs/integration-guide.md) — how to wire keytr into a Nostr client's auth flow, session restore, and credential management
-- [Roadmap](docs/roadmap.md) — current state and future direction (NIP-K2 passseeds)
+- [Roadmap](docs/roadmap.md) — current state and future direction
 - [NIP-K1 Specification](nip/nip-k1.md) — the protocol spec
 
 ## Install
@@ -35,7 +35,7 @@ npm install @sovit.xyz/keytr
 
 ## Quick start
 
-### Setup (new user — unified API)
+### Setup (new user)
 
 ```typescript
 import { setup, publishKeytrEvent } from '@sovit.xyz/keytr'
@@ -79,6 +79,17 @@ const { nsecBytes, npub } = await loginWithKeytr(events)
 
 The previous `setupKeytr()` and `discoverAndLogin()` functions remain available for backward compatibility.
 
+## Module exports
+
+keytr provides four entry points for tree-shaking and selective imports:
+
+| Export | Path | Contents |
+|--------|------|----------|
+| Main | `@sovit.xyz/keytr` | High-level API + re-exports from all modules |
+| Crypto | `@sovit.xyz/keytr/crypto` | `encryptNsec`, `decryptNsec`, `deriveKey`, `serializeBlob`, `deserializeBlob`, `buildAad` |
+| WebAuthn | `@sovit.xyz/keytr/webauthn` | `registerPasskey`, `registerKihPasskey`, `authenticatePasskey`, `discoverPasskey`, `unifiedDiscover`, `checkPrfSupport`, `checkCapabilities`, `ensureBrowser`, KiH helpers, Signal API, backup flags |
+| Nostr | `@sovit.xyz/keytr/nostr` | Key utilities, event building/parsing, relay operations |
+
 ## Compatibility
 
 keytr requires [discoverable credentials](https://w3c.github.io/webauthn/#client-side-discoverable-credential). PRF mode additionally requires the [PRF extension](https://w3c.github.io/webauthn/#prf-extension). KiH mode works without PRF.
@@ -119,9 +130,9 @@ Cross-client login via [Related Origin Requests](https://w3c.github.io/webauthn/
 | Safari | Yes | 18+ |
 | Firefox | No | Positive standards position (March 2026); no implementation timeline |
 
-Use `checkPrfSupport()` at runtime to detect PRF capability, or `checkCapabilities()` for a comprehensive report including PRF, conditional mediation, Related Origins, and Signal API support. The unified `setup()` API tries PRF first and automatically falls back to KiH when PRF is unavailable — no conditional logic needed in calling code.
-
 ### Capability detection
+
+Use `checkPrfSupport()` for PRF-only checks, or `checkCapabilities()` for a comprehensive report including PRF, conditional mediation, Related Origins, and Signal API support. The unified `setup()` API tries PRF first and automatically falls back to KiH when PRF is unavailable — no conditional logic needed in calling code.
 
 ```typescript
 import { checkCapabilities } from '@sovit.xyz/keytr'

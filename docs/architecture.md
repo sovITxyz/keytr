@@ -137,10 +137,12 @@ Source: `src/webauthn/kih.ts`
    - Algorithms: ES256 (-7), RS256 (-257)
    - `authenticatorSelection`: resident key required, user verification required
    - `extensions`: PRF with salt `"keytr-v1"`
+   - `hints`: optional authenticator routing (WebAuthn Level 3)
 4. Call `navigator.credentials.create()`
 5. Extract the 32-byte PRF output from `prf.results.first`. If not available (e.g., YubiKey), perform a follow-up assertion against the new credential to obtain it.
 6. Extract credential ID (raw bytes + base64url), rpId, transports
-7. Return `{ credential: KeytrCredential, prfOutput: Uint8Array }`
+7. Parse backup flags (BE/BS) from `authenticatorData` via `parseBackupFlags()`
+8. Return `{ credential: KeytrCredential, prfOutput: Uint8Array }`
 
 Source: `src/webauthn/register.ts`
 
@@ -153,10 +155,12 @@ Source: `src/webauthn/register.ts`
 3. Build `CredentialCreationOptions`:
    - Same rpId, algorithms, resident key, user verification as PRF mode
    - **No PRF extension** — KiH doesn't need it
+   - `hints`: optional authenticator routing (WebAuthn Level 3)
 4. Call `navigator.credentials.create()` — **single ceremony, no follow-up assertion**
 5. Extract credential ID, transports
-6. Extract the 32-byte key from the generated user.id
-7. Return `{ credential: KeytrCredential, handleKey: Uint8Array }`
+6. Parse backup flags (BE/BS) from `authenticatorData`
+7. Extract the 32-byte key from the generated user.id
+8. Return `{ credential: KeytrCredential, handleKey: Uint8Array }`
 
 KiH registration always completes in **1 biometric prompt** (no YubiKey follow-up, no Safari two-step).
 
@@ -171,13 +175,14 @@ Source: `src/webauthn/register-kih.ts`
    - Random challenge
    - `allowCredentials`: the specific credential ID from the event's `d` tag
    - `extensions`: PRF with salt `"keytr-v1"`
+   - `hints`: optional authenticator routing
 2. Call `navigator.credentials.get()` — triggers biometric/PIN
 3. Extract 32-byte PRF output
 4. Return the PRF output for decryption
 
 Source: `src/webauthn/authenticate.ts`
 
-### Authentication (Discoverable)
+### Authentication (Discoverable — PRF)
 
 `discoverPasskey(options?)` uses a **two-step flow** to work around Safari iOS 18+ not returning PRF extension output during discoverable authentication (empty `allowCredentials`):
 
@@ -188,6 +193,7 @@ Source: `src/webauthn/authenticate.ts`
    - Random challenge
    - `allowCredentials: []` — empty, so the browser shows all resident keys for this rpId
    - No PRF extension
+   - Supports `mediation` option (`'conditional'` for passkey autofill)
 2. Call `navigator.credentials.get()` — browser shows passkey picker, user selects one
 3. Extract pubkey from `response.userHandle` (the 32-byte public key set during registration)
 4. Extract credential ID from `rawId`
@@ -201,8 +207,6 @@ Source: `src/webauthn/authenticate.ts`
 6. Call `navigator.credentials.get()` — browser auto-approves since it targets the same credential
 7. Extract 32-byte PRF output
 8. Return `{ pubkey, prfOutput, credentialId }`
-
-This pattern matches the existing YubiKey fallback in `registerPasskey()`. The second assertion is typically auto-approved by the browser without an additional biometric prompt.
 
 Source: `src/webauthn/authenticate.ts`
 
@@ -232,15 +236,60 @@ Source: `src/webauthn/authenticate.ts`
 
 ### Support Detection
 
+#### PRF detection
+
 `checkPrfSupport()` checks:
 
 - `window.PublicKeyCredential` exists
 - Platform authenticator availability
-- Notes that full PRF detection is only possible at registration time (reported optimistically)
+- Uses `getClientCapabilities()` (Chrome 132+) for accurate PRF detection when available
+- Falls back to optimistic reporting (full PRF detection is only possible at registration time)
 
 Returns `{ supported: boolean, platformAuthenticator: boolean, reason?: string }`
 
 Source: `src/webauthn/support.ts`
+
+#### Comprehensive capability detection
+
+`checkCapabilities()` returns a full `WebAuthnCapabilities` report:
+
+- `webauthn` — whether WebAuthn is available
+- `platformAuthenticator` — whether a platform authenticator exists
+- `prf` — PRF support (`true`/`false`/`null` where null = requires credential creation to confirm)
+- `conditionalMediation` — passkey autofill support
+- `relatedOrigins` — cross-domain passkey use (federated gateways)
+- `signalApi` — credential lifecycle management (Signal API)
+
+Uses `PublicKeyCredential.getClientCapabilities()` (Chrome 132+) when available. Falls back to feature detection (`isConditionalMediationAvailable()`, `signalUnknownCredential` function presence).
+
+Source: `src/webauthn/support.ts`
+
+#### SSR guard
+
+`ensureBrowser()` throws `WebAuthnError` immediately if `navigator.credentials.create` is not a function (Node.js, SSR environments). All WebAuthn functions call this internally.
+
+Source: `src/webauthn/support.ts`
+
+### Backup Flags
+
+`parseBackupFlags(response)` extracts backup eligibility (BE) and backup state (BS) from `authenticatorData` byte 32:
+
+- Bit 3 (0x08): **BE** — credential is eligible for multi-device sync
+- Bit 4 (0x10): **BS** — credential is currently backed up
+
+Returns `{ backupEligible: boolean, backupState: boolean }` or `undefined` if `getAuthenticatorData()` is unavailable.
+
+Source: `src/webauthn/flags.ts`
+
+### Signal API
+
+WebAuthn Signal API wrappers (Chrome 132+) for credential lifecycle management. All are no-ops on unsupported browsers and return `boolean` indicating whether the signal was sent:
+
+- `signalUnknownCredential(rpId, credentialId)` — tell authenticators a credential is unknown (may delete/deprioritize)
+- `signalAllAcceptedCredentialIds(rpId, userId, credentialIds[])` — sync the full set of valid credentials for a user
+- `signalCurrentUserDetails(rpId, userId, name, displayName)` — update user metadata shown in the passkey picker
+
+Source: `src/webauthn/signal.ts`
 
 ---
 
@@ -251,10 +300,10 @@ Source: `src/webauthn/support.ts`
 Wrappers around `nostr-tools/pure`:
 
 - `generateNsec()` — random 32-byte private key
-- `nsecToPublicKey()` / `nsecToPublicKeyHex()` — derive public key
+- `nsecToPublicKey()` / `nsecToHexPubkey()` — derive public key (bytes / hex)
 - `encodeNsec()` / `decodeNsec()` — bech32 encode/decode with `nsec` prefix
 - `encodeNpub()` / `decodeNpub()` — bech32 with `npub` prefix
-- `nsecToNpub()` / `nsecToHexPubkey()` — convenience shortcuts
+- `nsecToNpub()` — convenience shortcut (nsec bytes → bech32 npub string)
 
 Source: `src/nostr/keys.ts`
 
@@ -300,9 +349,11 @@ Source: `src/nostr/event.ts`
 
 ### Relay Operations
 
-- `publishKeytrEvent(signedEvent, relayUrls)` — publishes to all relays in parallel; only throws if ALL relays fail
-- `fetchKeytrEvents(pubkey, relayUrls)` — queries all relays in parallel for kind:31777 events by author pubkey, deduplicates by event ID. Default 5-second timeout per relay.
-- `fetchKeytrEventByDTag(dTag, relayUrls)` — queries by `#d` tag (base64url credential ID). Used for KiH discoverable login where the pubkey isn't known upfront. Returns the most recent matching event.
+- `publishKeytrEvent(signedEvent, relayUrls, options?)` — publishes to all relays in parallel via `Promise.allSettled()`; only throws if ALL relays fail
+- `fetchKeytrEvents(pubkey, relayUrls, options?)` — queries all relays in parallel for kind:31777 events by author pubkey, deduplicates by event ID. Default 5-second timeout per relay.
+- `fetchKeytrEventByDTag(dTag, relayUrls, options?)` — queries by `#d` tag (base64url credential ID). Used for KiH discoverable login where the pubkey isn't known upfront. Returns the most recent matching event.
+
+All accept `RelayOptions` with a configurable `timeout` (milliseconds).
 
 Source: `src/nostr/relay.ts`
 
@@ -318,6 +369,7 @@ const result = await setup({
   userDisplayName: 'Alice',
   rpId: 'keytr.org',      // optional, defaults to keytr.org
   clientName: 'my-app',   // optional
+  hints: ['client-device'],// optional, WebAuthn Level 3
 })
 // result: { credential, encryptedBlob, eventTemplate, nsecBytes, npub, mode }
 // mode: 'prf' | 'kih'
@@ -502,13 +554,6 @@ This means:
 - A passkey registered with either rpId can be used from any authorized client origin (bies, gitvid, nostrbook)
 - The browser fetches the `.well-known/webauthn` file from the rpId domain and verifies the requesting origin is listed before allowing the WebAuthn ceremony
 
-In practice, a user on `nostkey.org` authenticating with a passkey bound to `keytr.org` works like this:
-
-1. Client calls `navigator.credentials.get({ publicKey: { rpId: "keytr.org" } })` from `nostkey.org`
-2. Browser fetches `https://keytr.org/.well-known/webauthn`
-3. Browser confirms `https://nostkey.org` is in the origins list
-4. Authenticator runs the ceremony using `keytr.org` as the rpId — returns the same credential and user handle as if the user were on `keytr.org` directly
-
 **Browser support**: Chrome 128+ (desktop and Android), Safari 18+ (iOS 18+, macOS Sequoia+).
 
 ### Adding a New Client Origin
@@ -652,7 +697,7 @@ Resilience comes from layering multiple independent backup strategies. No single
 
 ### Relay Redundancy (Existing)
 
-`publishKeytrEvent()` already publishes to multiple relays in parallel. Only throws if **all** relays fail — partial success is acceptable. Clients should publish to at least 3–5 relays and fetch from all known relays during login.
+`publishKeytrEvent()` already publishes to multiple relays in parallel. Only throws if **all** relays fail — partial success is acceptable. Clients should publish to at least 3-5 relays and fetch from all known relays during login.
 
 This is the first line of defense but not a guarantee. Relays can purge data, go offline, or reject parameterized replaceable events they don't understand.
 
@@ -671,70 +716,27 @@ Clients should cache the kind:31777 event(s) in `localStorage` or `IndexedDB` af
 4. After successful relay fetch → update local cache
 ```
 
-This handles the "relay purge" case transparently for returning users on the same device with zero user action. The cached event is just the signed Nostr event JSON — safe to store unencrypted since the content is already AES-256-GCM encrypted.
-
 ### Event Export (Recommended for Clients)
 
-Clients should offer an export function that lets users save their signed kind:31777 event(s) as a portable backup. The signed event is ~500–800 bytes of JSON — small enough for:
+Clients should offer an export function that lets users save their signed kind:31777 event(s) as a portable backup. The signed event is ~500-800 bytes of JSON — small enough for JSON file, QR code, or copy/paste.
 
-- **JSON file** — save to disk, cloud drive, or USB
-- **QR code** — print or screenshot for offline storage
-- **Copy/paste** — store in a notes app or secure vault
-
-On recovery, the client imports the event JSON and either:
-1. Decrypts directly using the passkey (no relay needed), or
-2. Re-publishes to relays and proceeds with normal login
-
-The export contains no secrets — just the signed Nostr event with the already-encrypted blob. An attacker with the export file and without the passkey gets nothing.
+On recovery, the client imports the event JSON and either decrypts directly using the passkey (no relay needed), or re-publishes to relays and proceeds with normal login.
 
 ### HTTP Fallback (Optional for Gateway Operators)
 
-Gateway operators can serve kind:31777 events at a well-known HTTP endpoint as a last resort when relays are unavailable:
+Gateway operators can serve kind:31777 events at a well-known HTTP endpoint:
 
 ```
 GET https://keytr.org/.well-known/nostr/k1/<hex-pubkey>
 ```
 
-This is a simple GET request — no Nostr protocol, no WebSocket, no subscription. Clients that fail to find events on relays can try this endpoint before giving up.
-
-This is **not a replacement for relays** — it's a fallback for the case where the entire relay network fails or purges K1 events. The gateway serves the same signed Nostr events that would be on relays, so the client's decryption flow is identical.
+Simple HTTP GET, no Nostr protocol. Clients that fail to find events on relays can try this endpoint before giving up.
 
 ### WebAuthn largeBlob (Roadmap)
 
-The WebAuthn `largeBlob` extension allows storing auxiliary data (up to ~1KB) directly inside a passkey credential. In theory, the signed kind:31777 event could be stored in the passkey itself — making the passkey fully self-contained for recovery (both the decryption key AND the encrypted payload in one place).
+The WebAuthn `largeBlob` extension allows storing auxiliary data directly inside a passkey credential. The ideal end-state: store the signed kind:31777 event inside the passkey itself — one passkey carries both the decryption key and the encrypted payload. No relay, no file, no external storage.
 
-This is the ideal end-state for backup: a single passkey that carries everything needed for recovery with zero external dependencies. However, **largeBlob support is too fragmented today to rely on**:
-
-| Authenticator | largeBlob support | Notes |
-|---|---|---|
-| YubiKey 5 (firmware 5.7+) | Yes | CTAP 2.1, max 4096 bytes |
-| iCloud Keychain | Yes | Since iOS 17 / macOS Sonoma / Safari 17 |
-| Google Password Manager | **No** | Supports PRF but not largeBlob |
-| Windows Hello | **No** | No credential management or largeBlob |
-| 1Password | **No** | Supports PRF but not largeBlob |
-| Bitwarden | **No** | Supports PRF but not largeBlob |
-| Dashlane | **No** | PRF in beta; no largeBlob support |
-
-Browser support:
-
-| Browser | largeBlob support | Notes |
-|---|---|---|
-| Chrome | Yes | Depends on authenticator support |
-| Safari 17+ | Yes | Only with iCloud Keychain |
-| Firefox | Unclear | PRF support added in 122+, largeBlob not confirmed |
-
-Google Password Manager and Windows Hello together represent the majority of passkey users on Android and Windows. Excluding them makes largeBlob unviable as a primary or even secondary backup strategy.
-
-For comparison, PRF (which keytr depends on for core functionality) has much broader support — Google Password Manager, iCloud Keychain, Windows Hello (11 25H2+), YubiKey, 1Password, and Bitwarden all support it. The backup strategy should not introduce a stricter compatibility requirement than the core login flow.
-
-**Roadmap**: When largeBlob adoption reaches critical mass (particularly Google Password Manager and Windows Hello), keytr should add optional largeBlob write during registration and largeBlob read as a fallback during login. The implementation would:
-
-1. At registration: detect `largeBlob` support via `getClientExtensionResults()`
-2. If supported: write the signed kind:31777 event JSON into the credential's largeBlob
-3. At login: if relay fetch returns no events, attempt `largeBlob` read before giving up
-4. Never depend on it — treat as an opportunistic bonus layer
-
-Until then, clients should rely on the other backup layers described above.
+Currently blocked on ecosystem adoption — Google Password Manager and Windows Hello don't support largeBlob. See [roadmap.md](roadmap.md) for details.
 
 ### Recommended Client Implementation
 
@@ -748,11 +750,9 @@ Clients integrating keytr should implement backup in this priority order:
 
 ### What keytr Does NOT Do
 
-keytr deliberately avoids these backup approaches:
-
-- **No plaintext nsec export** — exporting the raw nsec defeats the purpose of passkey-based key management. Users who want raw nsec access should use a different tool.
-- **No seed phrase / mnemonic** — the passkey (via iCloud Keychain, Google Password Manager, etc.) IS the portable secret. Adding a mnemonic creates a parallel recovery path with weaker security properties.
-- **No server-side key escrow** — the nsec never leaves the client unencrypted. Gateways and relays only see ciphertext.
+- **No plaintext nsec export** — exporting the raw nsec defeats the purpose of passkey-based key management
+- **No seed phrase / mnemonic** — the passkey IS the portable secret
+- **No server-side key escrow** — the nsec never leaves the client unencrypted
 
 ---
 
@@ -764,16 +764,7 @@ Browser extensions from password managers — **Bitwarden**, **1Password**, **Da
 
 **Note**: As of early 2026, 1Password and Bitwarden support PRF, and Dashlane has PRF in beta. However, these extensions may still not support Related Origin Requests, which is the issue described here.
 
-The problem: most password manager extensions **do not support Related Origin Requests**. When keytr calls `navigator.credentials.get()` with `rpId: "keytr.org"` from an authorized client origin like `bies.sovit.xyz`, the browser would normally:
-
-1. Fetch `https://keytr.org/.well-known/webauthn`
-2. Verify `https://bies.sovit.xyz` is in the origins list
-3. Allow the ceremony to proceed
-
-But if a password manager extension intercepts the call first, it applies its own origin validation — which typically requires an exact match between the requesting origin and the rpId. Since `bies.sovit.xyz !== keytr.org`, the extension rejects the request with an error like:
-
-- `SecurityError: The relying party ID is not a registrable domain suffix of, nor equal to the current domain.`
-- `NotAllowedError: The operation either timed out or was not allowed.`
+The problem: most password manager extensions **do not support Related Origin Requests**. When keytr calls `navigator.credentials.get()` with `rpId: "keytr.org"` from an authorized client origin like `bies.sovit.xyz`, the browser would normally fetch `keytr.org/.well-known/webauthn` and verify the origin. But if a password manager extension intercepts the call first, it applies its own origin validation — which typically requires an exact match between the requesting origin and the rpId. Since `bies.sovit.xyz !== keytr.org`, the extension rejects the request.
 
 This affects **all cross-origin flows** — any client using a gateway rpId different from its own domain will fail when these extensions are active.
 
@@ -788,23 +779,7 @@ This affects **all cross-origin flows** — any client using a gateway rpId diff
 
 #### Recommendations for Client Developers
 
-When a `SecurityError` or `NotAllowedError` occurs during a WebAuthn ceremony where the rpId differs from the current origin, clients should detect this condition and display a targeted hint:
-
-```
-Passkey authentication failed. If you have a password manager extension
-(Bitwarden, 1Password, Dashlane, etc.) installed, it may be intercepting
-WebAuthn requests without supporting cross-origin passkeys.
-
-Try disabling passkey/WebAuthn support in your password manager extension
-settings and retry.
-```
-
-This detection can be implemented by checking:
-1. The error is a `SecurityError` or `NotAllowedError`
-2. The rpId used does not match `window.location.hostname`
-3. The rpId is a known keytr gateway (e.g., `keytr.org`, `nostkey.org`)
-
-If all three conditions are true, the error is likely caused by extension interception rather than a genuine security violation or user cancellation.
+See [Integration Guide: Error Handling](integration-guide.md#error-handling) for detection patterns and user-facing error messages.
 
 #### Long-Term Outlook
 
@@ -882,86 +857,13 @@ src/
 │   ├── authenticate.ts   — authenticatePasskey() + discoverPasskey() + unifiedDiscover()
 │   ├── kih.ts            — generateKihUserId(), detectMode(), extractKihKey()
 │   ├── prf.ts            — PRF extension helpers
-│   └── support.ts        — checkPrfSupport()
+│   ├── support.ts        — checkPrfSupport() + checkCapabilities() + ensureBrowser()
+│   ├── flags.ts          — parseBackupFlags()
+│   └── signal.ts         — Signal API wrappers
 ├── nostr/
 │   ├── keys.ts           — nsec/npub encode/decode
 │   ├── event.ts          — build/parse kind:31777 (v=1 PRF, v=3 KiH)
 │   └── relay.ts          — publish/fetch events + fetchKeytrEventByDTag()
 └── fallback/
     └── password.ts       — disabled password encryption
-```
-
----
-
-## Public API
-
-### Types
-
-```typescript
-// Core
-KeytrCredential, EncryptedNsecBlob, KeytrEventTemplate,
-EncryptOptions, DecryptOptions, PrfSupportInfo,
-RegisterOptions, AuthenticateOptions, DiscoverOptions, DiscoverResult,
-KeytrBundle
-
-// KiH mode
-KeytrMode, UnifiedDiscoverResult, KihRegisterOptions, KihRegisterResult,
-SetupOptions, SetupResult, DiscoverLoginResult, ParsedKeytrEvent
-```
-
-### High-Level (Unified API)
-
-```typescript
-setup(options)                   // PRF-first with KiH fallback (returns mode)
-discover(relays, opts?)          // Auto-detect mode from userHandle, fetch & decrypt
-```
-
-### High-Level (Legacy — backward compatible)
-
-```typescript
-setupKeytr(options)              // PRF-only registration flow
-addBackupGateway(nsec, options)  // Register backup on another gateway
-discoverAndLogin(relays, opts?)  // PRF-only discoverable login
-loginWithKeytr(events)           // Try each event until a passkey matches
-```
-
-### Crypto
-
-```typescript
-encryptNsec(options)     // Encrypt nsec (supports aadVersion for KiH)
-decryptNsec(options)     // Decrypt nsec (supports aadVersion for KiH)
-buildAad(credId, ver?)   // Build AAD with version byte
-deriveKey(prf, salt)     // HKDF key derivation
-serializeBlob(blob)      // Pack to binary
-deserializeBlob(bytes)   // Unpack from binary
-```
-
-### WebAuthn
-
-```typescript
-checkPrfSupport()                  // Detect PRF capability
-registerPasskey(options)           // Create passkey + get PRF (PRF mode)
-registerKihPasskey(options)        // Create passkey with key-in-handle (KiH mode)
-authenticatePasskey(options)       // Assert known passkey + get PRF
-discoverPasskey(options?)          // Discoverable auth (two-step PRF)
-unifiedDiscover(options?)          // Auto-detect PRF vs KiH from userHandle
-generateKihUserId()                // Generate 33-byte KiH user.id
-detectMode(userHandle)             // Detect 'prf' | 'kih' from userHandle
-extractKihKey(userHandle)          // Extract 32-byte key from KiH userHandle
-```
-
-### Nostr
-
-```typescript
-generateNsec()                       // Random private key
-nsecToPublicKey(nsec)                // Derive public key
-encodeNsec(bytes) / decodeNsec(s)    // Bech32 nsec
-encodeNpub(bytes) / decodeNpub(s)    // Bech32 npub
-nsecToNpub(bytes)                    // Shortcut
-nsecToHexPubkey(bytes)               // Hex public key
-buildKeytrEvent(options)             // Build kind:31777 (supports version option)
-parseKeytrEvent(event)               // Parse kind:31777 (returns mode)
-publishKeytrEvent(event, relays)     // Publish to relays
-fetchKeytrEvents(pubkey, relays)     // Fetch by pubkey
-fetchKeytrEventByDTag(dTag, relays)  // Fetch by #d tag (KiH discoverable login)
 ```
