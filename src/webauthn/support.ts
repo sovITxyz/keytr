@@ -95,7 +95,7 @@ export async function checkCapabilities(): Promise<WebAuthnCapabilities> {
     platformAuthenticator,
     prf: null, // Can't detect without creating a credential
     conditionalMediation,
-    relatedOrigins: false, // Can't detect without getClientCapabilities
+    relatedOrigins: null, // Can't detect without getClientCapabilities
     signalApi: typeof (PublicKeyCredential as any).signalUnknownCredential === 'function',
   }
 }

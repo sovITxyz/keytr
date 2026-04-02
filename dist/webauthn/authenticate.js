@@ -3,6 +3,7 @@ import { DEFAULT_RP_ID, KEYTR_VERSION, KEYTR_KIH_VERSION } from '../types.js';
 import { WebAuthnError, PrfNotSupportedError } from '../errors.js';
 import { prfAuthenticationExtension, extractPrfOutput } from './prf.js';
 import { detectMode, extractKihKey } from './kih.js';
+import { ensureBrowser } from './support.js';
 /**
  * Authenticate with an existing passkey and obtain the PRF output
  * for decrypting the nsec.
@@ -10,23 +11,27 @@ import { detectMode, extractKihKey } from './kih.js';
  * @returns 32-byte PRF output for key derivation
  */
 export async function authenticatePasskey(options) {
+    ensureBrowser();
     const { credentialId, rpId, transports } = options;
-    const getOptions = {
-        publicKey: {
-            rpId,
-            challenge: crypto.getRandomValues(new Uint8Array(32)),
-            allowCredentials: [
-                {
-                    type: 'public-key',
-                    id: credentialId.buffer,
-                    transports: transports ?? [],
-                },
-            ],
-            userVerification: 'required',
-            timeout: options.timeout ?? 120000,
-            extensions: prfAuthenticationExtension(),
-        },
+    const pubKeyOptions = {
+        rpId,
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        allowCredentials: [
+            {
+                type: 'public-key',
+                id: credentialId.buffer,
+                transports: transports ?? [],
+            },
+        ],
+        userVerification: 'required',
+        timeout: options.timeout ?? 120000,
+        extensions: prfAuthenticationExtension(),
     };
+    if (options.hints?.length) {
+        ;
+        pubKeyOptions.hints = options.hints;
+    }
+    const getOptions = { publicKey: pubKeyOptions };
     let assertion;
     try {
         const result = await navigator.credentials.get(getOptions);
@@ -64,18 +69,24 @@ export async function authenticatePasskey(options) {
  * @returns The recovered pubkey, PRF output, and credential ID
  */
 export async function discoverPasskey(options) {
+    ensureBrowser();
     const rpId = options?.rpId ?? DEFAULT_RP_ID;
     const timeout = options?.timeout ?? 120000;
     // Step 1: Discovery — no PRF, empty allowCredentials
-    const discoveryOptions = {
-        publicKey: {
-            rpId,
-            challenge: crypto.getRandomValues(new Uint8Array(32)),
-            allowCredentials: [],
-            userVerification: 'required',
-            timeout,
-        },
+    const pubKeyOptions = {
+        rpId,
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        allowCredentials: [],
+        userVerification: 'required',
+        timeout,
     };
+    if (options?.hints?.length) {
+        ;
+        pubKeyOptions.hints = options.hints;
+    }
+    const discoveryOptions = { publicKey: pubKeyOptions };
+    if (options?.mediation)
+        discoveryOptions.mediation = options.mediation;
     let assertion;
     try {
         const result = await navigator.credentials.get(discoveryOptions);
@@ -142,18 +153,24 @@ export async function discoverPasskey(options) {
  * @returns Mode, key material, credential ID, and AAD version
  */
 export async function unifiedDiscover(options) {
+    ensureBrowser();
     const rpId = options?.rpId ?? DEFAULT_RP_ID;
     const timeout = options?.timeout ?? 120000;
     // Step 1: Discovery — no PRF, empty allowCredentials
-    const discoveryOptions = {
-        publicKey: {
-            rpId,
-            challenge: crypto.getRandomValues(new Uint8Array(32)),
-            allowCredentials: [],
-            userVerification: 'required',
-            timeout,
-        },
+    const pubKeyOptions = {
+        rpId,
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        allowCredentials: [],
+        userVerification: 'required',
+        timeout,
     };
+    if (options?.hints?.length) {
+        ;
+        pubKeyOptions.hints = options.hints;
+    }
+    const discoveryOptions = { publicKey: pubKeyOptions };
+    if (options?.mediation)
+        discoveryOptions.mediation = options.mediation;
     let assertion;
     try {
         const result = await navigator.credentials.get(discoveryOptions);

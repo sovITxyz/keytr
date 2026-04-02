@@ -1,19 +1,22 @@
-export type { KeytrCredential, EncryptedNsecBlob, KeytrEventTemplate, EncryptOptions, DecryptOptions, PrfSupportInfo, RegisterOptions, AuthenticateOptions, DiscoverOptions, DiscoverResult, KeytrBundle, KeytrMode, UnifiedDiscoverResult, KihRegisterOptions, KihRegisterResult, } from './types.js';
+export type { KeytrCredential, EncryptedNsecBlob, KeytrEventTemplate, EncryptOptions, DecryptOptions, PrfSupportInfo, RegisterOptions, AuthenticateOptions, DiscoverOptions, DiscoverResult, KeytrBundle, KeytrMode, UnifiedDiscoverResult, KihRegisterOptions, KihRegisterResult, WebAuthnCapabilities, } from './types.js';
 export { KEYTR_VERSION, KEYTR_KIH_VERSION, KEYTR_EVENT_KIND, DEFAULT_RP_ID, DEFAULT_RP_NAME, KEYTR_GATEWAYS, KIH_KEY_SIZE, KIH_USER_ID_SIZE, KIH_MODE_BYTE, PRF_USER_ID_SIZE, } from './types.js';
 export { KeytrError, PrfNotSupportedError, EncryptionError, DecryptionError, BlobParseError, WebAuthnError, RelayError, } from './errors.js';
 export { encryptNsec, buildAad } from './crypto/encrypt.js';
 export { decryptNsec } from './crypto/decrypt.js';
 export { deriveKey } from './crypto/kdf.js';
 export { serializeBlob, deserializeBlob } from './crypto/blob.js';
-export { checkPrfSupport } from './webauthn/support.js';
+export { checkPrfSupport, checkCapabilities, ensureBrowser } from './webauthn/support.js';
 export { registerPasskey } from './webauthn/register.js';
 export { registerKihPasskey } from './webauthn/register-kih.js';
 export { authenticatePasskey, discoverPasskey, unifiedDiscover } from './webauthn/authenticate.js';
 export { generateKihUserId, detectMode, extractKihKey } from './webauthn/kih.js';
+export { parseBackupFlags } from './webauthn/flags.js';
+export { signalUnknownCredential, signalAllAcceptedCredentialIds, signalCurrentUserDetails, } from './webauthn/signal.js';
 export { generateNsec, nsecToPublicKey, encodeNsec, decodeNsec, encodeNpub, decodeNpub, nsecToNpub, nsecToHexPubkey, } from './nostr/keys.js';
 export { buildKeytrEvent, parseKeytrEvent, type ParsedKeytrEvent } from './nostr/event.js';
 export { publishKeytrEvent, fetchKeytrEvents, fetchKeytrEventByDTag, type RelayOptions } from './nostr/relay.js';
 import type { RegisterOptions, DiscoverOptions, KeytrBundle, KeytrMode } from './types.js';
+import type { RelayOptions } from './nostr/relay.js';
 /**
  * Full registration flow: generate nsec, create passkey, encrypt, build event.
  *
@@ -59,7 +62,9 @@ export declare function loginWithKeytr(events: {
  * No prior knowledge of the user's pubkey or credential ID is needed.
  * Requires passkeys registered with pubkey as user.id (post-discoverable-login update).
  */
-export declare function discoverAndLogin(relays: string[], options?: DiscoverOptions): Promise<{
+export declare function discoverAndLogin(relays: string[], options?: DiscoverOptions & {
+    relayOptions?: RelayOptions;
+}): Promise<{
     nsecBytes: Uint8Array;
     npub: string;
     pubkey: string;
@@ -72,6 +77,8 @@ export interface SetupOptions {
     userDisplayName: string;
     clientName?: string;
     timeout?: number;
+    /** WebAuthn Level 3 hints to guide authenticator selection */
+    hints?: string[];
 }
 /** Result of the unified setup flow */
 export interface SetupResult extends KeytrBundle {
@@ -104,5 +111,7 @@ export interface DiscoverLoginResult {
  * 3. If KiH: extract key from userHandle, query relay by #d tag
  * 4. Decrypt nsec, derive pubkey, verify against event.pubkey
  */
-export declare function discover(relays: string[], options?: DiscoverOptions): Promise<DiscoverLoginResult>;
+export declare function discover(relays: string[], options?: DiscoverOptions & {
+    relayOptions?: RelayOptions;
+}): Promise<DiscoverLoginResult>;
 //# sourceMappingURL=index.d.ts.map

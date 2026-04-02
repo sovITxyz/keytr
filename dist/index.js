@@ -7,11 +7,13 @@ export { decryptNsec } from './crypto/decrypt.js';
 export { deriveKey } from './crypto/kdf.js';
 export { serializeBlob, deserializeBlob } from './crypto/blob.js';
 // WebAuthn
-export { checkPrfSupport } from './webauthn/support.js';
+export { checkPrfSupport, checkCapabilities, ensureBrowser } from './webauthn/support.js';
 export { registerPasskey } from './webauthn/register.js';
 export { registerKihPasskey } from './webauthn/register-kih.js';
 export { authenticatePasskey, discoverPasskey, unifiedDiscover } from './webauthn/authenticate.js';
 export { generateKihUserId, detectMode, extractKihKey } from './webauthn/kih.js';
+export { parseBackupFlags } from './webauthn/flags.js';
+export { signalUnknownCredential, signalAllAcceptedCredentialIds, signalCurrentUserDetails, } from './webauthn/signal.js';
 // Nostr
 export { generateNsec, nsecToPublicKey, encodeNsec, decodeNsec, encodeNpub, decodeNpub, nsecToNpub, nsecToHexPubkey, } from './nostr/keys.js';
 export { buildKeytrEvent, parseKeytrEvent } from './nostr/event.js';
@@ -135,13 +137,17 @@ export async function loginWithKeytr(events) {
  * Requires passkeys registered with pubkey as user.id (post-discoverable-login update).
  */
 export async function discoverAndLogin(relays, options) {
-    const { pubkey, prfOutput, credentialId } = await discoverPasskey({
-        rpId: options?.rpId ?? DEFAULT_RP_ID,
-        timeout: options?.timeout,
-    });
+    const discoverOpts = { rpId: options?.rpId ?? DEFAULT_RP_ID };
+    if (options?.timeout)
+        discoverOpts.timeout = options.timeout;
+    if (options?.mediation)
+        discoverOpts.mediation = options.mediation;
+    if (options?.hints?.length)
+        discoverOpts.hints = options.hints;
+    const { pubkey, prfOutput, credentialId } = await discoverPasskey(discoverOpts);
     let events;
     try {
-        events = await _fetchEvents(pubkey, relays);
+        events = await _fetchEvents(pubkey, relays, options?.relayOptions);
     }
     catch (err) {
         prfOutput.fill(0);
@@ -197,6 +203,7 @@ export async function setup(options) {
             userDisplayName: options.userDisplayName,
             pubkey,
             timeout: options.timeout,
+            hints: options.hints,
         });
         try {
             const encryptedBlob = _encryptNsec({
@@ -227,6 +234,7 @@ export async function setup(options) {
         userName: options.userName,
         userDisplayName: options.userDisplayName,
         timeout: options.timeout,
+        hints: options.hints,
     });
     try {
         const encryptedBlob = _encryptNsec({
@@ -256,15 +264,19 @@ export async function setup(options) {
  * 4. Decrypt nsec, derive pubkey, verify against event.pubkey
  */
 export async function discover(relays, options) {
-    const result = await _unifiedDiscover({
-        rpId: options?.rpId ?? DEFAULT_RP_ID,
-        timeout: options?.timeout,
-    });
+    const unifiedOpts = { rpId: options?.rpId ?? DEFAULT_RP_ID };
+    if (options?.timeout)
+        unifiedOpts.timeout = options.timeout;
+    if (options?.mediation)
+        unifiedOpts.mediation = options.mediation;
+    if (options?.hints?.length)
+        unifiedOpts.hints = options.hints;
+    const result = await _unifiedDiscover(unifiedOpts);
     const credentialIdB64 = base64url.encode(result.credentialId);
     let event = null;
     if (result.mode === 'prf' && result.pubkey) {
         // PRF path: fetch by pubkey, find matching credential
-        const events = await _fetchEvents(result.pubkey, relays);
+        const events = await _fetchEvents(result.pubkey, relays, options?.relayOptions);
         event = events.find(e => {
             const dTag = e.tags.find((t) => t[0] === 'd')?.[1];
             return dTag === credentialIdB64;
@@ -272,7 +284,7 @@ export async function discover(relays, options) {
     }
     else {
         // KiH path: fetch by d-tag (no pubkey available)
-        event = await _fetchByDTag(credentialIdB64, relays);
+        event = await _fetchByDTag(credentialIdB64, relays, options?.relayOptions);
     }
     if (!event) {
         result.keyMaterial.fill(0);
