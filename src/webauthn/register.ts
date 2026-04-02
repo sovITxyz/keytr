@@ -4,6 +4,8 @@ import type { KeytrCredential, RegisterOptions } from '../types.js'
 import { DEFAULT_RP_ID, DEFAULT_RP_NAME } from '../types.js'
 import { WebAuthnError, PrfNotSupportedError } from '../errors.js'
 import { prfRegistrationExtension, prfAuthenticationExtension, extractPrfOutput } from './prf.js'
+import { ensureBrowser } from './support.js'
+import { parseBackupFlags } from './flags.js'
 
 /**
  * Register a new passkey with PRF extension enabled.
@@ -16,36 +18,43 @@ import { prfRegistrationExtension, prfAuthenticationExtension, extractPrfOutput 
 export async function registerPasskey(
   options: RegisterOptions
 ): Promise<{ credential: KeytrCredential; prfOutput: Uint8Array }> {
+  ensureBrowser()
+
   const rpId = options.rpId ?? DEFAULT_RP_ID
   const rpName = options.rpName ?? DEFAULT_RP_NAME
   const { userName, userDisplayName, pubkey } = options
   const userId = hexToBytes(pubkey)
 
-  const createOptions: CredentialCreationOptions = {
-    publicKey: {
-      rp: {
-        id: rpId,
-        name: rpName,
-      },
-      user: {
-        id: userId.buffer.slice(0) as ArrayBuffer,
-        name: userName,
-        displayName: userDisplayName,
-      },
-      challenge: randomBytes(32).buffer.slice(0) as ArrayBuffer,
-      pubKeyCredParams: [
-        { type: 'public-key', alg: -7 },    // ES256
-        { type: 'public-key', alg: -257 },  // RS256
-      ],
-      authenticatorSelection: {
-        residentKey: 'required',
-        requireResidentKey: true,
-        userVerification: 'required',
-      },
-      timeout: options.timeout ?? 120000,
-      extensions: prfRegistrationExtension(),
+  const pubKeyOptions: PublicKeyCredentialCreationOptions = {
+    rp: {
+      id: rpId,
+      name: rpName,
     },
+    user: {
+      id: userId.buffer.slice(0) as ArrayBuffer,
+      name: userName,
+      displayName: userDisplayName,
+    },
+    challenge: randomBytes(32).buffer.slice(0) as ArrayBuffer,
+    pubKeyCredParams: [
+      { type: 'public-key', alg: -7 },    // ES256
+      { type: 'public-key', alg: -257 },  // RS256
+    ],
+    authenticatorSelection: {
+      residentKey: 'required',
+      requireResidentKey: true,
+      userVerification: 'required',
+    },
+    timeout: options.timeout ?? 120000,
+    extensions: prfRegistrationExtension(),
   }
+
+  // WebAuthn Level 3 hints for authenticator routing
+  if (options.hints?.length) {
+    ;(pubKeyOptions as any).hints = options.hints
+  }
+
+  const createOptions: CredentialCreationOptions = { publicKey: pubKeyOptions }
 
   let cred: PublicKeyCredential
   try {
@@ -103,6 +112,7 @@ export async function registerPasskey(
 
   const credentialId = new Uint8Array(cred.rawId)
   const transports = response.getTransports?.() as AuthenticatorTransport[] ?? []
+  const backup = parseBackupFlags(response)
 
   const credential: KeytrCredential = {
     credentialId,
@@ -110,6 +120,7 @@ export async function registerPasskey(
     rpId,
     transports,
     prfSupported: true,
+    ...backup && { backupEligible: backup.backupEligible, backupState: backup.backupState },
   }
 
   return { credential, prfOutput }

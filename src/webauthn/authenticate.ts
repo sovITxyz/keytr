@@ -4,6 +4,7 @@ import { DEFAULT_RP_ID, KEYTR_VERSION, KEYTR_KIH_VERSION } from '../types.js'
 import { WebAuthnError, PrfNotSupportedError } from '../errors.js'
 import { prfAuthenticationExtension, extractPrfOutput } from './prf.js'
 import { detectMode, extractKihKey } from './kih.js'
+import { ensureBrowser } from './support.js'
 
 /**
  * Authenticate with an existing passkey and obtain the PRF output
@@ -14,24 +15,30 @@ import { detectMode, extractKihKey } from './kih.js'
 export async function authenticatePasskey(
   options: AuthenticateOptions
 ): Promise<Uint8Array> {
+  ensureBrowser()
+
   const { credentialId, rpId, transports } = options
 
-  const getOptions: CredentialRequestOptions = {
-    publicKey: {
-      rpId,
-      challenge: crypto.getRandomValues(new Uint8Array(32)),
-      allowCredentials: [
-        {
-          type: 'public-key',
-          id: credentialId.buffer as ArrayBuffer,
-          transports: transports ?? [],
-        },
-      ],
-      userVerification: 'required',
-      timeout: options.timeout ?? 120000,
-      extensions: prfAuthenticationExtension(),
-    },
+  const pubKeyOptions: PublicKeyCredentialRequestOptions = {
+    rpId,
+    challenge: crypto.getRandomValues(new Uint8Array(32)),
+    allowCredentials: [
+      {
+        type: 'public-key',
+        id: credentialId.buffer as ArrayBuffer,
+        transports: transports ?? [],
+      },
+    ],
+    userVerification: 'required',
+    timeout: options.timeout ?? 120000,
+    extensions: prfAuthenticationExtension(),
   }
+
+  if (options.hints?.length) {
+    ;(pubKeyOptions as any).hints = options.hints
+  }
+
+  const getOptions: CredentialRequestOptions = { publicKey: pubKeyOptions }
 
   let assertion: PublicKeyCredential
   try {
@@ -75,18 +82,27 @@ export async function authenticatePasskey(
 export async function discoverPasskey(
   options?: DiscoverOptions
 ): Promise<DiscoverResult> {
+  ensureBrowser()
+
   const rpId = options?.rpId ?? DEFAULT_RP_ID
   const timeout = options?.timeout ?? 120000
 
   // Step 1: Discovery — no PRF, empty allowCredentials
+  const pubKeyOptions: PublicKeyCredentialRequestOptions = {
+    rpId,
+    challenge: crypto.getRandomValues(new Uint8Array(32)),
+    allowCredentials: [],
+    userVerification: 'required',
+    timeout,
+  }
+
+  if (options?.hints?.length) {
+    ;(pubKeyOptions as any).hints = options.hints
+  }
+
   const discoveryOptions: CredentialRequestOptions = {
-    publicKey: {
-      rpId,
-      challenge: crypto.getRandomValues(new Uint8Array(32)),
-      allowCredentials: [],
-      userVerification: 'required',
-      timeout,
-    },
+    mediation: options?.mediation,
+    publicKey: pubKeyOptions,
   }
 
   let assertion: PublicKeyCredential
@@ -161,18 +177,27 @@ export async function discoverPasskey(
 export async function unifiedDiscover(
   options?: DiscoverOptions
 ): Promise<UnifiedDiscoverResult> {
+  ensureBrowser()
+
   const rpId = options?.rpId ?? DEFAULT_RP_ID
   const timeout = options?.timeout ?? 120000
 
   // Step 1: Discovery — no PRF, empty allowCredentials
+  const pubKeyOptions: PublicKeyCredentialRequestOptions = {
+    rpId,
+    challenge: crypto.getRandomValues(new Uint8Array(32)),
+    allowCredentials: [],
+    userVerification: 'required',
+    timeout,
+  }
+
+  if (options?.hints?.length) {
+    ;(pubKeyOptions as any).hints = options.hints
+  }
+
   const discoveryOptions: CredentialRequestOptions = {
-    publicKey: {
-      rpId,
-      challenge: crypto.getRandomValues(new Uint8Array(32)),
-      allowCredentials: [],
-      userVerification: 'required',
-      timeout,
-    },
+    mediation: options?.mediation,
+    publicKey: pubKeyOptions,
   }
 
   let assertion: PublicKeyCredential

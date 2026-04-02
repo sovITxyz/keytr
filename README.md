@@ -119,7 +119,66 @@ Cross-client login via [Related Origin Requests](https://w3c.github.io/webauthn/
 | Safari | Yes | 18+ |
 | Firefox | No | Positive standards position (March 2026); no implementation timeline |
 
-Use `checkPrfSupport()` at runtime to detect PRF capability. The unified `setup()` API tries PRF first and automatically falls back to KiH when PRF is unavailable — no conditional logic needed in calling code.
+Use `checkPrfSupport()` at runtime to detect PRF capability, or `checkCapabilities()` for a comprehensive report including PRF, conditional mediation, Related Origins, and Signal API support. The unified `setup()` API tries PRF first and automatically falls back to KiH when PRF is unavailable — no conditional logic needed in calling code.
+
+### Capability detection
+
+```typescript
+import { checkCapabilities } from '@sovit.xyz/keytr'
+
+const caps = await checkCapabilities()
+// caps.prf              — true/false/null (null = unknown, requires credential creation to confirm)
+// caps.conditionalMediation — passkey autofill support
+// caps.relatedOrigins   — cross-domain passkey use (federated gateways)
+// caps.signalApi        — credential lifecycle management
+```
+
+Uses `PublicKeyCredential.getClientCapabilities()` (Chrome 132+) when available, falls back to feature detection.
+
+### Conditional UI (passkey autofill)
+
+Pass `mediation: 'conditional'` to `discover()` or `discoverPasskey()` for passkey autofill instead of the modal picker. Requires `<input autocomplete="webauthn">` in the DOM:
+
+```typescript
+const { nsecBytes, pubkey, mode } = await discover(relays, {
+  mediation: 'conditional',  // passkey suggestions appear in the input field
+})
+```
+
+### Credential lifecycle (Signal API)
+
+Tell authenticators to clean up revoked or stale passkeys (Chrome 132+). No-ops on unsupported browsers:
+
+```typescript
+import { signalUnknownCredential, signalAllAcceptedCredentialIds } from '@sovit.xyz/keytr'
+
+// User deleted their passkey — tell authenticators to remove it
+await signalUnknownCredential('keytr.org', credentialId)
+
+// Sync the full set of valid credentials for a user
+await signalAllAcceptedCredentialIds('keytr.org', userId, [credId1, credId2])
+```
+
+### Backup eligibility
+
+After registration, `KeytrCredential` includes backup flags from `authenticatorData`:
+
+```typescript
+const { credential } = await setup({ ... })
+if (credential.backupEligible === false) {
+  console.warn('This passkey is device-bound and will not sync across devices')
+}
+```
+
+### SSR safety
+
+All WebAuthn functions throw `WebAuthnError` immediately in non-browser environments (Node.js, SSR). Use `ensureBrowser()` for explicit pre-checks in SSR frameworks:
+
+```typescript
+import { ensureBrowser } from '@sovit.xyz/keytr'
+
+try { ensureBrowser() } catch { /* render fallback UI */ }
+```
 
 ## Security properties
 

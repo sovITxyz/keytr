@@ -431,6 +431,153 @@ if (!supported) {
 }
 ```
 
+### Comprehensive capability detection
+
+For a full picture of what the browser supports, use `checkCapabilities()`:
+
+```javascript
+import { checkCapabilities } from '@sovit.xyz/keytr'
+
+const caps = await checkCapabilities()
+
+if (caps.conditionalMediation) {
+  // Can use passkey autofill instead of modal picker
+}
+if (caps.relatedOrigins) {
+  // Cross-domain passkey use works (federated gateways)
+} else {
+  // Firefox: offer separate registration per gateway
+}
+if (caps.signalApi) {
+  // Can tell authenticators to clean up revoked credentials
+}
+```
+
+Uses `PublicKeyCredential.getClientCapabilities()` (Chrome 132+) when available, with feature detection fallback for older browsers.
+
+### SSR safety
+
+All WebAuthn functions (`registerPasskey`, `registerKihPasskey`, `authenticatePasskey`, `discoverPasskey`, `unifiedDiscover`) throw `WebAuthnError` immediately in non-browser environments. For SSR frameworks (Next.js, Nuxt), use `ensureBrowser()` to gate UI:
+
+```javascript
+import { ensureBrowser } from '@sovit.xyz/keytr'
+
+function PasskeyButton() {
+  try {
+    ensureBrowser()
+    return <button onClick={handlePasskey}>Login with Passkey</button>
+  } catch {
+    return null  // Don't render passkey UI on server
+  }
+}
+```
+
+---
+
+## Conditional UI (Passkey Autofill)
+
+Instead of the modal passkey picker, you can show passkey suggestions inline in a text field. This requires:
+1. An `<input>` with `autocomplete="webauthn"` in the DOM
+2. A browser that supports conditional mediation (Chrome 108+, Safari 16+, Edge 108+, Firefox 119+)
+
+```javascript
+import { discover, checkCapabilities } from '@sovit.xyz/keytr'
+
+const caps = await checkCapabilities()
+
+if (caps.conditionalMediation) {
+  // Show passkey suggestions in the username input
+  const { nsecBytes, pubkey, mode } = await discover(RELAYS, {
+    mediation: 'conditional',
+  })
+}
+```
+
+Check support with `checkCapabilities().conditionalMediation` before using, as unsupported browsers will ignore the option and show the modal picker.
+
+---
+
+## Backup Eligibility Flags
+
+After registration, `KeytrCredential` includes backup flags parsed from `authenticatorData`:
+
+```javascript
+const { credential } = await setup({ ... })
+
+if (credential.backupEligible === false) {
+  // Device-bound credential — warn the user it won't sync
+  showWarning('This passkey is stored on this device only. Consider adding a backup gateway.')
+}
+
+if (credential.backupState === true) {
+  // Credential is actively backed up / synced
+}
+```
+
+- `backupEligible` (BE flag): Whether the authenticator supports multi-device sync
+- `backupState` (BS flag): Whether the credential is currently backed up
+
+Both are `undefined` if the browser doesn't expose `getAuthenticatorData()`.
+
+---
+
+## Signal API (Credential Lifecycle)
+
+The WebAuthn Signal API (Chrome 132+) lets you tell authenticators about credential lifecycle changes. All functions return `true` if the signal was sent, `false` if the API is unavailable:
+
+```javascript
+import {
+  signalUnknownCredential,
+  signalAllAcceptedCredentialIds,
+  signalCurrentUserDetails,
+} from '@sovit.xyz/keytr'
+
+// User revoked a passkey — tell authenticators to remove it
+await signalUnknownCredential('keytr.org', credentialId)
+
+// Sync the full set of valid credential IDs for a user
+await signalAllAcceptedCredentialIds('keytr.org', userId, [credId1, credId2])
+
+// Update the user's display name shown in the passkey picker
+await signalCurrentUserDetails('keytr.org', userId, 'alice', 'Alice')
+```
+
+These are no-ops on browsers without Signal API support — safe to call unconditionally.
+
+---
+
+## Authenticator Hints
+
+WebAuthn Level 3 adds `hints` to guide the browser toward the right authenticator type. Pass these through keytr's registration and authentication options:
+
+```javascript
+await setup({
+  userName: 'alice',
+  userDisplayName: 'Alice',
+  hints: ['client-device'],  // prefer platform authenticator over security key
+})
+
+await discover(RELAYS, {
+  hints: ['hybrid'],  // prefer phone-as-authenticator flow
+})
+```
+
+Available hints: `'security-key'`, `'client-device'`, `'hybrid'`. Unsupported browsers ignore the option.
+
+---
+
+## Relay Timeouts
+
+High-level functions accept `relayOptions` to configure relay operation timeouts:
+
+```javascript
+await discover(RELAYS, {
+  relayOptions: { timeout: 15000 },  // 15 seconds instead of default 5
+})
+```
+
+Useful for slow networks or Tor relays. Low-level functions (`publishKeytrEvent`, `fetchKeytrEvents`, `fetchKeytrEventByDTag`) already accept `RelayOptions` directly.
+
 ---
 
 ## Checklist
@@ -444,5 +591,7 @@ Integration checklist for client developers:
 - [ ] **Session restore**: Re-acquire signing keys lazily or eagerly based on your app's needs
 - [ ] **Backup gateway**: Offer registration on a second gateway (`nostkey.org`) for redundancy
 - [ ] **Extension detection**: Detect password manager interference and show a targeted hint
-- [ ] **PRF check**: Detect PRF support and conditionally show passkey UI
+- [ ] **Capability check**: Use `checkCapabilities()` to detect PRF, conditional UI, ROR, and Signal API support
+- [ ] **Backup flags**: Check `credential.backupEligible` and warn if the passkey won't sync
+- [ ] **Signal API**: Call `signalUnknownCredential()` when users revoke passkeys
 - [ ] **Gateway origin**: Submit a PR to add your domain to the gateway's `/.well-known/webauthn`
