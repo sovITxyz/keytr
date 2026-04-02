@@ -100,10 +100,8 @@ export async function discoverPasskey(
     ;(pubKeyOptions as any).hints = options.hints
   }
 
-  const discoveryOptions: CredentialRequestOptions = {
-    mediation: options?.mediation,
-    publicKey: pubKeyOptions,
-  }
+  const discoveryOptions: CredentialRequestOptions = { publicKey: pubKeyOptions }
+  if (options?.mediation) discoveryOptions.mediation = options.mediation
 
   let assertion: PublicKeyCredential
   try {
@@ -195,10 +193,8 @@ export async function unifiedDiscover(
     ;(pubKeyOptions as any).hints = options.hints
   }
 
-  const discoveryOptions: CredentialRequestOptions = {
-    mediation: options?.mediation,
-    publicKey: pubKeyOptions,
-  }
+  const discoveryOptions: CredentialRequestOptions = { publicKey: pubKeyOptions }
+  if (options?.mediation) discoveryOptions.mediation = options.mediation
 
   let assertion: PublicKeyCredential
   try {

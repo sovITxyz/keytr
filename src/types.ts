@@ -216,8 +216,8 @@ export interface WebAuthnCapabilities {
   prf: boolean | null
   /** Whether conditional mediation (passkey autofill) is supported */
   conditionalMediation: boolean
-  /** Whether Related Origin Requests are supported (cross-domain passkey use) */
-  relatedOrigins: boolean
+  /** Whether Related Origin Requests are supported (cross-domain passkey use; null = unknown) */
+  relatedOrigins: boolean | null
   /** Whether the WebAuthn Signal API is supported (credential lifecycle management) */
   signalApi: boolean
 }

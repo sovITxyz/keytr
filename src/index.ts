@@ -232,12 +232,11 @@ export async function discoverAndLogin(
   relays: string[],
   options?: DiscoverOptions & { relayOptions?: RelayOptions }
 ): Promise<{ nsecBytes: Uint8Array; npub: string; pubkey: string }> {
-  const { pubkey, prfOutput, credentialId } = await discoverPasskey({
-    rpId: options?.rpId ?? DEFAULT_RP_ID,
-    timeout: options?.timeout,
-    mediation: options?.mediation,
-    hints: options?.hints,
-  })
+  const discoverOpts: DiscoverOptions = { rpId: options?.rpId ?? DEFAULT_RP_ID }
+  if (options?.timeout) discoverOpts.timeout = options.timeout
+  if (options?.mediation) discoverOpts.mediation = options.mediation
+  if (options?.hints?.length) discoverOpts.hints = options.hints
+  const { pubkey, prfOutput, credentialId } = await discoverPasskey(discoverOpts)
 
   let events
   try {
@@ -401,12 +400,11 @@ export async function discover(
   relays: string[],
   options?: DiscoverOptions & { relayOptions?: RelayOptions }
 ): Promise<DiscoverLoginResult> {
-  const result = await _unifiedDiscover({
-    rpId: options?.rpId ?? DEFAULT_RP_ID,
-    timeout: options?.timeout,
-    mediation: options?.mediation,
-    hints: options?.hints,
-  })
+  const unifiedOpts: DiscoverOptions = { rpId: options?.rpId ?? DEFAULT_RP_ID }
+  if (options?.timeout) unifiedOpts.timeout = options.timeout
+  if (options?.mediation) unifiedOpts.mediation = options.mediation
+  if (options?.hints?.length) unifiedOpts.hints = options.hints
+  const result = await _unifiedDiscover(unifiedOpts)
 
   const credentialIdB64 = base64url.encode(result.credentialId)
 
