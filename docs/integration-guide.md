@@ -20,12 +20,12 @@ Tier 2: Cached user pubkey (app's user store)
   └─ Same flow as Tier 1, auto-index the credential for next time
 
 Tier 3: Discoverable (cold start)
-  └─ No local state at all → discoverAndLogin(relays)
+  └─ No local state at all → discover(relays)
   └─ Browser shows passkey picker, user selects identity
   └─ Auto-index the credential for next time
 ```
 
-Every tier ends with a single biometric prompt. The difference is **how the client finds the right kind:31777 events** — by targeted pubkey query (tiers 1–2) or by recovering the pubkey from the passkey itself (tier 3).
+Every tier ends with a single biometric prompt. The difference is **how the client finds the right kind:31777 events** — by targeted pubkey query (tiers 1-2) or by recovering the pubkey from the passkey itself (tier 3).
 
 ### Why three tiers?
 
@@ -417,7 +417,7 @@ See [Architecture: Password Manager Extensions](architecture.md#password-manager
 
 ### PRF support detection
 
-Check for PRF support early if you need to inform the user which mode will be used. Note that the unified `setup()` API handles this automatically — it tries PRF first and falls back to KiH:
+Check for PRF support early if you need to inform the user which mode will be used. The unified `setup()` API handles this automatically — it tries PRF first and falls back to KiH:
 
 ```javascript
 import { checkPrfSupport } from '@sovit.xyz/keytr'
@@ -576,7 +576,7 @@ await discover(RELAYS, {
 })
 ```
 
-Useful for slow networks or Tor relays. Low-level functions (`publishKeytrEvent`, `fetchKeytrEvents`, `fetchKeytrEventByDTag`) already accept `RelayOptions` directly.
+Useful for slow networks or Tor relays. Low-level functions (`publishKeytrEvent`, `fetchKeytrEvents`, `fetchKeytrEventByDTag`) accept `RelayOptions` directly.
 
 ---
 
