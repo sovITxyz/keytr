@@ -90,6 +90,7 @@ import { DEFAULT_RP_ID, KEYTR_KIH_VERSION } from './types.js'
 import { WebAuthnError, RelayError, KeytrError, PrfNotSupportedError } from './errors.js'
 import { registerPasskey } from './webauthn/register.js'
 import { registerKihPasskey as _registerKih } from './webauthn/register-kih.js'
+import { checkPrfSupport as _checkPrf } from './webauthn/support.js'
 import { authenticatePasskey } from './webauthn/authenticate.js'
 import { discoverPasskey } from './webauthn/authenticate.js'
 import { unifiedDiscover as _unifiedDiscover } from './webauthn/authenticate.js'
@@ -309,44 +310,54 @@ export interface SetupResult extends KeytrBundle {
  *
  * KiH mode stores a random key in user.id (33 bytes, 0x03 prefix) and
  * works with any authenticator including password manager extensions.
+ *
+ * Pre-checks PRF support via getClientCapabilities() (Chrome 132+) to
+ * avoid creating an orphaned credential when PRF is definitively
+ * unsupported (e.g. GrapheneOS, password manager extensions).
  */
 export async function setup(options: SetupOptions): Promise<SetupResult> {
   const nsecBytes = _generateNsec()
   const npub = _nsecToNpub(nsecBytes)
   const pubkey = _nsecToHexPubkey(nsecBytes)
 
-  // Try PRF first
-  try {
-    const { credential, prfOutput } = await registerPasskey({
-      rpId: options.rpId,
-      rpName: options.rpName,
-      userName: options.userName,
-      userDisplayName: options.userDisplayName,
-      pubkey,
-      timeout: options.timeout,
-      hints: options.hints,
-    })
+  // Pre-check: if getClientCapabilities() definitively reports no PRF,
+  // skip straight to KiH to avoid creating an orphaned PRF credential.
+  const { supported: prfSupported } = await _checkPrf()
 
+  if (prfSupported !== false) {
+    // Try PRF first (either confirmed or unknown/optimistic)
     try {
-      const encryptedBlob = _encryptNsec({
-        nsecBytes,
-        prfOutput,
-        credentialId: credential.credentialId,
+      const { credential, prfOutput } = await registerPasskey({
+        rpId: options.rpId,
+        rpName: options.rpName,
+        userName: options.userName,
+        userDisplayName: options.userDisplayName,
+        pubkey,
+        timeout: options.timeout,
+        hints: options.hints,
       })
 
-      const eventTemplate = _buildEvent({
-        credential,
-        encryptedBlob,
-        clientName: options.clientName,
-      })
+      try {
+        const encryptedBlob = _encryptNsec({
+          nsecBytes,
+          prfOutput,
+          credentialId: credential.credentialId,
+        })
 
-      return { credential, encryptedBlob, eventTemplate, nsecBytes, npub, mode: 'prf' }
-    } finally {
-      prfOutput.fill(0)
+        const eventTemplate = _buildEvent({
+          credential,
+          encryptedBlob,
+          clientName: options.clientName,
+        })
+
+        return { credential, encryptedBlob, eventTemplate, nsecBytes, npub, mode: 'prf' }
+      } finally {
+        prfOutput.fill(0)
+      }
+    } catch (err) {
+      // Only fall back to KiH if PRF specifically failed
+      if (!(err instanceof PrfNotSupportedError)) throw err
     }
-  } catch (err) {
-    // Only fall back to KiH if PRF specifically failed
-    if (!(err instanceof PrfNotSupportedError)) throw err
   }
 
   // KiH fallback
