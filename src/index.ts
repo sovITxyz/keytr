@@ -92,6 +92,7 @@ import { parseKeytrEvent as _parseEvent } from './nostr/event.js'
 import { generateNsec as _generateNsec, nsecToNpub as _nsecToNpub, nsecToHexPubkey as _nsecToHexPubkey } from './nostr/keys.js'
 import { fetchKeytrEvents as _fetchByPubkey, fetchKeytrEventByDTag as _fetchByDTag } from './nostr/relay.js'
 import { base64url } from '@scure/base'
+import { safeZero } from './crypto/builtins.js'
 
 /** Built-in KiH (Key-in-Handle) strategy — the default */
 export const kihStrategy: KeyStrategy = {
@@ -133,7 +134,7 @@ export async function setupKeytr(
 
     return { credential, encryptedBlob, eventTemplate, nsecBytes, npub }
   } finally {
-    keyMaterial.fill(0)
+    safeZero(keyMaterial)
   }
 }
 
@@ -167,7 +168,7 @@ export async function addBackupGateway(
 
     return { credential, encryptedBlob, eventTemplate }
   } finally {
-    keyMaterial.fill(0)
+    safeZero(keyMaterial)
   }
 }
 
@@ -216,7 +217,7 @@ export async function loginWithKeytr(events: {
       const npub = _nsecToNpub(nsecBytes)
       return { nsecBytes, npub }
     } finally {
-      keyMaterial.fill(0)
+      safeZero(keyMaterial)
     }
   }
 
@@ -283,7 +284,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
 
     return { credential, encryptedBlob, eventTemplate, nsecBytes, npub }
   } finally {
-    keyMaterial.fill(0)
+    safeZero(keyMaterial)
   }
 }
 
@@ -324,7 +325,7 @@ export async function discover(
   }
 
   if (!event) {
-    result.keyMaterial.fill(0)
+    safeZero(result.keyMaterial)
     throw new KeytrError(
       `No event matches credential ${credentialIdB64}`
     )
@@ -344,7 +345,7 @@ export async function discover(
 
     // Verify pubkey matches event author (integrity check)
     if ('pubkey' in event && event.pubkey && event.pubkey !== pubkey) {
-      nsecBytes.fill(0)
+      safeZero(nsecBytes)
       throw new KeytrError(
         'Decrypted nsec does not match event author pubkey — possible tampering'
       )
@@ -352,6 +353,6 @@ export async function discover(
 
     return { nsecBytes, npub, pubkey }
   } finally {
-    result.keyMaterial.fill(0)
+    safeZero(result.keyMaterial)
   }
 }

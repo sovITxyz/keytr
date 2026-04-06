@@ -29,6 +29,7 @@ import { parseKeytrEvent as _parseEvent } from './nostr/event.js';
 import { generateNsec as _generateNsec, nsecToNpub as _nsecToNpub, nsecToHexPubkey as _nsecToHexPubkey } from './nostr/keys.js';
 import { fetchKeytrEvents as _fetchByPubkey, fetchKeytrEventByDTag as _fetchByDTag } from './nostr/relay.js';
 import { base64url } from '@scure/base';
+import { safeZero } from './crypto/builtins.js';
 /** Built-in KiH (Key-in-Handle) strategy — the default */
 export const kihStrategy = {
     version: KEYTR_VERSION,
@@ -63,7 +64,7 @@ export async function setupKeytr(options) {
         return { credential, encryptedBlob, eventTemplate, nsecBytes, npub };
     }
     finally {
-        keyMaterial.fill(0);
+        safeZero(keyMaterial);
     }
 }
 /**
@@ -91,7 +92,7 @@ export async function addBackupGateway(nsecBytes, options) {
         return { credential, encryptedBlob, eventTemplate };
     }
     finally {
-        keyMaterial.fill(0);
+        safeZero(keyMaterial);
     }
 }
 /**
@@ -132,7 +133,7 @@ export async function loginWithKeytr(events, strategy) {
             return { nsecBytes, npub };
         }
         finally {
-            keyMaterial.fill(0);
+            safeZero(keyMaterial);
         }
     }
     throw new WebAuthnError(`No matching passkey found across ${events.length} event(s): ${lastError?.message ?? 'unknown error'}`);
@@ -172,7 +173,7 @@ export async function setup(options) {
         return { credential, encryptedBlob, eventTemplate, nsecBytes, npub };
     }
     finally {
-        keyMaterial.fill(0);
+        safeZero(keyMaterial);
     }
 }
 /**
@@ -203,7 +204,7 @@ export async function discover(relays, options) {
         event = await _fetchByDTag(credentialIdB64, relays, options?.relayOptions);
     }
     if (!event) {
-        result.keyMaterial.fill(0);
+        safeZero(result.keyMaterial);
         throw new KeytrError(`No event matches credential ${credentialIdB64}`);
     }
     try {
@@ -218,13 +219,13 @@ export async function discover(relays, options) {
         const npub = _nsecToNpub(nsecBytes);
         // Verify pubkey matches event author (integrity check)
         if ('pubkey' in event && event.pubkey && event.pubkey !== pubkey) {
-            nsecBytes.fill(0);
+            safeZero(nsecBytes);
             throw new KeytrError('Decrypted nsec does not match event author pubkey — possible tampering');
         }
         return { nsecBytes, npub, pubkey };
     }
     finally {
-        result.keyMaterial.fill(0);
+        safeZero(result.keyMaterial);
     }
 }
 //# sourceMappingURL=index.js.map

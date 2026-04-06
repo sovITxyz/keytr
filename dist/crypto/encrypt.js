@@ -5,6 +5,7 @@ import { BLOB_VERSION, KEYTR_VERSION } from '../types.js';
 import { EncryptionError } from '../errors.js';
 import { deriveKey } from './kdf.js';
 import { serializeBlob } from './blob.js';
+import { safeZero } from './builtins.js';
 /**
  * Build the Additional Authenticated Data (AAD) for AES-GCM.
  * AAD = "keytr" || version_byte || credentialId
@@ -43,8 +44,8 @@ export function encryptNsec(options) {
         return base64.encode(blob);
     }
     finally {
-        // Best-effort memory cleanup
-        key.fill(0);
+        // Best-effort memory cleanup (uses cached .fill to resist prototype pollution)
+        safeZero(key);
     }
 }
 //# sourceMappingURL=encrypt.js.map

@@ -1,0 +1,1 @@
+{"version":3,"file":"natives.d.ts","sourceRoot":"","sources":["../../src/webauthn/natives.ts"],"names":[],"mappings":"AAAA;;;;;;;;GAQG;AAMH,eAAO,MAAM,YAAY,EAAE,OAAO,SAAS,CAAC,WAAW,CAAC,MAAM,GAAG,SACvB,CAAA;AAE1C,eAAO,MAAM,SAAS,EAAE,OAAO,SAAS,CAAC,WAAW,CAAC,GAAG,GAAG,SACpB,CAAA"}
