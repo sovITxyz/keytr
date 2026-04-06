@@ -4,6 +4,7 @@ import type { KeytrCredential, RegisterOptions } from '../types.js'
 import { DEFAULT_RP_ID, DEFAULT_RP_NAME } from '../types.js'
 import { WebAuthnError, PrfNotSupportedError } from '../errors.js'
 import { prfRegistrationExtension, prfAuthenticationExtension, extractPrfOutput } from './prf.js'
+import { signalUnknownCredential } from './signal.js'
 import { ensureBrowser } from './support.js'
 import { parseBackupFlags } from './flags.js'
 
@@ -106,6 +107,10 @@ export async function registerPasskey(
     const assertionExtensions = assertion.getClientExtensionResults()
     prfOutput = extractPrfOutput(assertionExtensions)
     if (!prfOutput || prfOutput.length !== 32) {
+      // Credential was created but PRF is not supported — clean up the
+      // orphaned credential via Signal API so it doesn't appear in the
+      // passkey picker. No-op on browsers without Signal API support.
+      await signalUnknownCredential(rpId, new Uint8Array(cred.rawId))
       throw new PrfNotSupportedError('PRF output not available from this authenticator')
     }
   }

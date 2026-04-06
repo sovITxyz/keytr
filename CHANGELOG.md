@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.6.3] - 2026-04-06
+
+### Fixed
+- **Orphaned credential cleanup** — `registerPasskey()` now calls `signalUnknownCredential()` (WebAuthn Signal API) when PRF fails after credential creation. The browser removes the orphaned passkey from the picker so only the subsequent KiH credential remains. No-op on browsers without Signal API support.
+
 ## [0.6.2] - 2026-04-06
 
 ### Fixed
