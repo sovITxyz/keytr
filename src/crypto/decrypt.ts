@@ -1,18 +1,18 @@
 import { gcm } from '@noble/ciphers/aes.js'
 import { base64 } from '@scure/base'
-import { KEYTR_VERSION, type DecryptOptions } from '../types.js'
+import type { DecryptOptions } from '../types.js'
 import { DecryptionError } from '../errors.js'
 import { deriveKey } from './kdf.js'
 import { deserializeBlob } from './blob.js'
 import { buildAad } from './encrypt.js'
 
 /**
- * Decrypt a base64-encoded encrypted nsec blob using a PRF-derived key.
+ * Decrypt a base64-encoded encrypted nsec blob using the passkey's embedded key.
  *
  * @returns 32-byte raw nsec private key
  */
 export function decryptNsec(options: DecryptOptions): Uint8Array {
-  const { encryptedBlob, prfOutput, credentialId } = options
+  const { encryptedBlob, keyMaterial, credentialId } = options
 
   let blobBytes: Uint8Array
   try {
@@ -22,8 +22,8 @@ export function decryptNsec(options: DecryptOptions): Uint8Array {
   }
 
   const blob = deserializeBlob(blobBytes)
-  const key = deriveKey(prfOutput, blob.hkdfSalt)
-  const aad = buildAad(credentialId, options.aadVersion ?? KEYTR_VERSION)
+  const key = deriveKey(keyMaterial, blob.hkdfSalt)
+  const aad = buildAad(credentialId, options.version)
 
   try {
     const cipher = gcm(key, blob.iv, aad)

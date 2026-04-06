@@ -1,9 +1,6 @@
 export declare class KeytrError extends Error {
     constructor(message: string);
 }
-export declare class PrfNotSupportedError extends KeytrError {
-    constructor(reason?: string);
-}
 export declare class EncryptionError extends KeytrError {
     constructor(message: string);
 }

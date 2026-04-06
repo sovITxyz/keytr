@@ -1,4 +1,4 @@
-import { KEYTR_VERSION } from '../types.js';
+import { BLOB_VERSION } from '../types.js';
 import { BlobParseError } from '../errors.js';
 /**
  * Blob binary layout:
@@ -36,7 +36,7 @@ export function deserializeBlob(data) {
         throw new BlobParseError(`Expected ${BLOB_SIZE} bytes, got ${data.length}`);
     }
     const version = data[0];
-    if (version !== KEYTR_VERSION) {
+    if (version !== BLOB_VERSION) {
         throw new BlobParseError(`Unsupported blob version: ${version}`);
     }
     return {

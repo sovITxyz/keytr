@@ -6,57 +6,57 @@ import { randomBytes } from '@noble/hashes/utils.js'
 describe('encrypt/decrypt roundtrip', () => {
   it('encrypts and decrypts correctly', () => {
     const nsecBytes = randomBytes(32)
-    const prfOutput = randomBytes(32)
+    const keyMaterial = randomBytes(32)
     const credentialId = randomBytes(16)
 
-    const blob = encryptNsec({ nsecBytes, prfOutput, credentialId })
+    const blob = encryptNsec({ nsecBytes, keyMaterial, credentialId })
 
     const decrypted = decryptNsec({
       encryptedBlob: blob,
-      prfOutput,
+      keyMaterial,
       credentialId,
     })
 
     expect(decrypted).toEqual(nsecBytes)
   })
 
-  it('fails with wrong PRF output', () => {
+  it('fails with wrong key material', () => {
     const nsecBytes = randomBytes(32)
-    const prfOutput = randomBytes(32)
+    const keyMaterial = randomBytes(32)
     const credentialId = randomBytes(16)
 
-    const blob = encryptNsec({ nsecBytes, prfOutput, credentialId })
+    const blob = encryptNsec({ nsecBytes, keyMaterial, credentialId })
 
-    const wrongPrf = randomBytes(32)
+    const wrongKey = randomBytes(32)
     expect(() => decryptNsec({
       encryptedBlob: blob,
-      prfOutput: wrongPrf,
+      keyMaterial: wrongKey,
       credentialId,
     })).toThrow()
   })
 
   it('fails with wrong credential ID (AAD mismatch)', () => {
     const nsecBytes = randomBytes(32)
-    const prfOutput = randomBytes(32)
+    const keyMaterial = randomBytes(32)
     const credentialId = randomBytes(16)
 
-    const blob = encryptNsec({ nsecBytes, prfOutput, credentialId })
+    const blob = encryptNsec({ nsecBytes, keyMaterial, credentialId })
 
     const wrongCred = randomBytes(16)
     expect(() => decryptNsec({
       encryptedBlob: blob,
-      prfOutput,
+      keyMaterial,
       credentialId: wrongCred,
     })).toThrow()
   })
 
   it('produces different ciphertexts for same input (random IV/salt)', () => {
     const nsecBytes = randomBytes(32)
-    const prfOutput = randomBytes(32)
+    const keyMaterial = randomBytes(32)
     const credentialId = randomBytes(16)
 
-    const blob1 = encryptNsec({ nsecBytes, prfOutput, credentialId })
-    const blob2 = encryptNsec({ nsecBytes, prfOutput, credentialId })
+    const blob1 = encryptNsec({ nsecBytes, keyMaterial, credentialId })
+    const blob2 = encryptNsec({ nsecBytes, keyMaterial, credentialId })
 
     expect(blob1).not.toBe(blob2)
   })
@@ -64,7 +64,7 @@ describe('encrypt/decrypt roundtrip', () => {
   it('rejects invalid base64 blob', () => {
     expect(() => decryptNsec({
       encryptedBlob: 'not-valid-base64!!!',
-      prfOutput: randomBytes(32),
+      keyMaterial: randomBytes(32),
       credentialId: randomBytes(16),
     })).toThrow()
   })
@@ -72,7 +72,7 @@ describe('encrypt/decrypt roundtrip', () => {
   it('rejects wrong nsec length', () => {
     expect(() => encryptNsec({
       nsecBytes: randomBytes(16),
-      prfOutput: randomBytes(32),
+      keyMaterial: randomBytes(32),
       credentialId: randomBytes(16),
     })).toThrow('nsec must be 32 bytes')
   })

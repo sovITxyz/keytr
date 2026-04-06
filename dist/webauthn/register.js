@@ -1,24 +1,23 @@
-import { randomBytes, hexToBytes } from '@noble/hashes/utils.js';
+import { randomBytes } from '@noble/hashes/utils.js';
 import { base64url } from '@scure/base';
 import { DEFAULT_RP_ID, DEFAULT_RP_NAME } from '../types.js';
-import { WebAuthnError, PrfNotSupportedError } from '../errors.js';
-import { prfRegistrationExtension, prfAuthenticationExtension, extractPrfOutput } from './prf.js';
+import { WebAuthnError } from '../errors.js';
+import { generateUserId, extractKey } from './kih.js';
 import { ensureBrowser } from './support.js';
 import { parseBackupFlags } from './flags.js';
 /**
- * Register a new passkey with PRF extension enabled.
+ * Register a new passkey with a random encryption key embedded in user.id.
  *
- * This creates a discoverable credential (resident key) on the user's
- * authenticator with PRF support for key derivation.
- *
- * @returns The credential metadata and initial PRF output for first encryption
+ * The 32-byte encryption key is embedded in user.id as [0x03 || key].
+ * Works with all authenticators including password manager extensions.
+ * Single biometric prompt — no follow-up assertion needed.
  */
 export async function registerPasskey(options) {
     ensureBrowser();
     const rpId = options.rpId ?? DEFAULT_RP_ID;
     const rpName = options.rpName ?? DEFAULT_RP_NAME;
-    const { userName, userDisplayName, pubkey } = options;
-    const userId = hexToBytes(pubkey);
+    const { userName, userDisplayName } = options;
+    const userId = generateUserId();
     const pubKeyOptions = {
         rp: {
             id: rpId,
@@ -40,7 +39,6 @@ export async function registerPasskey(options) {
             userVerification: 'required',
         },
         timeout: options.timeout ?? 120000,
-        extensions: prfRegistrationExtension(),
     };
     // WebAuthn Level 3 hints for authenticator routing
     if (options.hints?.length) {
@@ -61,47 +59,6 @@ export async function registerPasskey(options) {
         throw new WebAuthnError(`Passkey registration failed: ${err.message}`);
     }
     const response = cred.response;
-    const extensionResults = cred.getClientExtensionResults();
-    let prfOutput = extractPrfOutput(extensionResults);
-    // Some authenticators (e.g. YubiKey) report prf.enabled=true during
-    // registration but only return PRF output during authentication.
-    // Fall back to an immediate assertion to obtain the PRF output.
-    if (!prfOutput || prfOutput.length !== 32) {
-        const credId = new Uint8Array(cred.rawId);
-        const getOptions = {
-            publicKey: {
-                rpId,
-                challenge: randomBytes(32).buffer.slice(0),
-                allowCredentials: [
-                    {
-                        type: 'public-key',
-                        id: credId.buffer.slice(0),
-                        transports: response.getTransports?.() ?? [],
-                    },
-                ],
-                userVerification: 'required',
-                timeout: options.timeout ?? 120000,
-                extensions: prfAuthenticationExtension(),
-            },
-        };
-        let assertion;
-        try {
-            const result = await navigator.credentials.get(getOptions);
-            if (!result)
-                throw new WebAuthnError('Follow-up authentication returned null');
-            assertion = result;
-        }
-        catch (err) {
-            if (err instanceof WebAuthnError)
-                throw err;
-            throw new WebAuthnError(`Follow-up PRF authentication failed: ${err.message}`);
-        }
-        const assertionExtensions = assertion.getClientExtensionResults();
-        prfOutput = extractPrfOutput(assertionExtensions);
-        if (!prfOutput || prfOutput.length !== 32) {
-            throw new PrfNotSupportedError('PRF output not available from this authenticator');
-        }
-    }
     const credentialId = new Uint8Array(cred.rawId);
     const transports = response.getTransports?.() ?? [];
     const backup = parseBackupFlags(response);
@@ -110,9 +67,9 @@ export async function registerPasskey(options) {
         credentialIdBase64url: base64url.encode(credentialId),
         rpId,
         transports,
-        prfSupported: true,
         ...backup && { backupEligible: backup.backupEligible, backupState: backup.backupState },
     };
-    return { credential, prfOutput };
+    const keyMaterial = extractKey(userId);
+    return { credential, keyMaterial };
 }
 //# sourceMappingURL=register.js.map
