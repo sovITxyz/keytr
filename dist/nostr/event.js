@@ -1,5 +1,5 @@
 import { base64url } from '@scure/base';
-import { KEYTR_EVENT_KIND, KEYTR_KIH_VERSION } from '../types.js';
+import { KEYTR_EVENT_KIND, KEYTR_VERSION } from '../types.js';
 import { KeytrError } from '../errors.js';
 /** Build an unsigned kind:31777 event template for a passkey-encrypted nsec */
 export function buildKeytrEvent(options) {
@@ -9,7 +9,7 @@ export function buildKeytrEvent(options) {
         ['rp', credential.rpId],
         ['algo', 'aes-256-gcm'],
         ['kdf', 'hkdf-sha256'],
-        ['v', options.version ?? '1'],
+        ['v', String(options.version ?? KEYTR_VERSION)],
     ];
     if (credential.transports.length > 0) {
         tags.push(['transports', ...credential.transports]);
@@ -38,7 +38,7 @@ export function parseKeytrEvent(event) {
     if (!rpId) {
         throw new KeytrError('Missing "rp" tag');
     }
-    const version = parseInt(getTag('v') ?? '1', 10);
+    const version = parseInt(getTag('v') ?? String(KEYTR_VERSION), 10);
     const algorithm = getTag('algo') ?? 'aes-256-gcm';
     const kdf = getTag('kdf') ?? 'hkdf-sha256';
     const transportsTag = event.tags.find(t => t[0] === 'transports');
@@ -51,7 +51,6 @@ export function parseKeytrEvent(event) {
     catch {
         throw new KeytrError('Invalid credential ID encoding in "d" tag');
     }
-    const mode = version === KEYTR_KIH_VERSION ? 'kih' : 'prf';
     return {
         credentialIdBase64url,
         credentialId,
@@ -62,7 +61,6 @@ export function parseKeytrEvent(event) {
         kdf,
         transports,
         clientName,
-        mode,
     };
 }
 //# sourceMappingURL=event.js.map

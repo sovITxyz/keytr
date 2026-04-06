@@ -4,12 +4,6 @@ export class KeytrError extends Error {
         this.name = 'KeytrError';
     }
 }
-export class PrfNotSupportedError extends KeytrError {
-    constructor(reason) {
-        super(reason ?? 'WebAuthn PRF extension is not supported by this authenticator');
-        this.name = 'PrfNotSupportedError';
-    }
-}
 export class EncryptionError extends KeytrError {
     constructor(message) {
         super(message);

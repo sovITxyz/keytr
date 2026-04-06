@@ -2,101 +2,69 @@ import { describe, it, expect } from 'vitest'
 import { encryptNsec, buildAad } from '../../src/crypto/encrypt.js'
 import { decryptNsec } from '../../src/crypto/decrypt.js'
 import { randomBytes } from '@noble/hashes/utils.js'
-import { KEYTR_VERSION, KEYTR_KIH_VERSION } from '../../src/types.js'
+import { KEYTR_VERSION } from '../../src/types.js'
 
 describe('buildAad', () => {
-  it('defaults to PRF version byte', () => {
+  it('uses version 3 by default', () => {
     const credId = new Uint8Array([0xaa, 0xbb])
     const aad = buildAad(credId)
     // 'keytr' (5) + version (1) + credId (2) = 8 bytes
     expect(aad.length).toBe(8)
-    expect(aad[5]).toBe(KEYTR_VERSION) // version byte
+    expect(aad[5]).toBe(KEYTR_VERSION) // version byte = 3
   })
 
-  it('accepts explicit version byte', () => {
-    const credId = new Uint8Array([0xaa])
-    const aad = buildAad(credId, KEYTR_KIH_VERSION)
-    expect(aad[5]).toBe(KEYTR_KIH_VERSION)
-  })
-
-  it('PRF and KiH AADs differ for same credentialId', () => {
-    const credId = randomBytes(16)
-    const prfAad = buildAad(credId, KEYTR_VERSION)
-    const kihAad = buildAad(credId, KEYTR_KIH_VERSION)
-    expect(prfAad).not.toEqual(kihAad)
+  it('accepts custom version', () => {
+    const credId = new Uint8Array([0xaa, 0xbb])
+    const aad = buildAad(credId, 1)
+    expect(aad.length).toBe(8)
+    expect(aad[5]).toBe(1)
   })
 })
 
-describe('cross-mode encryption isolation', () => {
-  it('KiH-encrypted blob decrypts with KiH AAD version', () => {
+describe('encryption roundtrip', () => {
+  it('encrypts and decrypts correctly', () => {
     const nsecBytes = randomBytes(32)
     const keyMaterial = randomBytes(32)
     const credentialId = randomBytes(16)
 
-    const blob = encryptNsec({
-      nsecBytes,
-      prfOutput: keyMaterial,
-      credentialId,
-      aadVersion: KEYTR_KIH_VERSION,
-    })
+    const blob = encryptNsec({ nsecBytes, keyMaterial, credentialId })
 
     const decrypted = decryptNsec({
       encryptedBlob: blob,
-      prfOutput: keyMaterial,
+      keyMaterial,
       credentialId,
-      aadVersion: KEYTR_KIH_VERSION,
     })
 
     expect(decrypted).toEqual(nsecBytes)
   })
 
-  it('PRF blob cannot be decrypted with KiH AAD version', () => {
+  it('fails with wrong key material', () => {
     const nsecBytes = randomBytes(32)
     const keyMaterial = randomBytes(32)
     const credentialId = randomBytes(16)
 
-    const blob = encryptNsec({
-      nsecBytes,
-      prfOutput: keyMaterial,
-      credentialId,
-      aadVersion: KEYTR_VERSION,
-    })
+    const blob = encryptNsec({ nsecBytes, keyMaterial, credentialId })
 
+    const wrongKey = randomBytes(32)
     expect(() => decryptNsec({
       encryptedBlob: blob,
-      prfOutput: keyMaterial,
+      keyMaterial: wrongKey,
       credentialId,
-      aadVersion: KEYTR_KIH_VERSION,
     })).toThrow()
   })
 
-  it('KiH blob cannot be decrypted with PRF AAD version', () => {
+  it('fails with wrong credential ID (AAD mismatch)', () => {
     const nsecBytes = randomBytes(32)
     const keyMaterial = randomBytes(32)
     const credentialId = randomBytes(16)
 
-    const blob = encryptNsec({
-      nsecBytes,
-      prfOutput: keyMaterial,
-      credentialId,
-      aadVersion: KEYTR_KIH_VERSION,
-    })
+    const blob = encryptNsec({ nsecBytes, keyMaterial, credentialId })
 
+    const wrongCred = randomBytes(16)
     expect(() => decryptNsec({
       encryptedBlob: blob,
-      prfOutput: keyMaterial,
-      credentialId,
+      keyMaterial,
+      credentialId: wrongCred,
     })).toThrow()
-  })
-
-  it('existing PRF roundtrip still works (no aadVersion = default v1)', () => {
-    const nsecBytes = randomBytes(32)
-    const prfOutput = randomBytes(32)
-    const credentialId = randomBytes(16)
-
-    const blob = encryptNsec({ nsecBytes, prfOutput, credentialId })
-    const decrypted = decryptNsec({ encryptedBlob: blob, prfOutput, credentialId })
-
-    expect(decrypted).toEqual(nsecBytes)
   })
 })

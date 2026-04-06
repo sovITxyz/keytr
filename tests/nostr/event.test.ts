@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildKeytrEvent, parseKeytrEvent } from '../../src/nostr/event.js'
-import { KEYTR_EVENT_KIND, type KeytrCredential } from '../../src/types.js'
+import { KEYTR_EVENT_KIND, KEYTR_VERSION, type KeytrCredential } from '../../src/types.js'
 import { base64url } from '@scure/base'
 
 describe('nostr event', () => {
@@ -10,7 +10,6 @@ describe('nostr event', () => {
     credentialIdBase64url: base64url.encode(credentialId),
     rpId: 'keytr.org',
     transports: ['internal', 'hybrid'] as AuthenticatorTransport[],
-    prfSupported: true,
   }
 
   it('builds a valid event template', () => {
@@ -26,19 +25,9 @@ describe('nostr event', () => {
     expect(event.tags.find(t => t[0] === 'rp')?.[1]).toBe('keytr.org')
     expect(event.tags.find(t => t[0] === 'algo')?.[1]).toBe('aes-256-gcm')
     expect(event.tags.find(t => t[0] === 'kdf')?.[1]).toBe('hkdf-sha256')
-    expect(event.tags.find(t => t[0] === 'v')?.[1]).toBe('1')
+    expect(event.tags.find(t => t[0] === 'v')?.[1]).toBe(String(KEYTR_VERSION))
     expect(event.tags.find(t => t[0] === 'client')?.[1]).toBe('test-client')
     expect(event.tags.find(t => t[0] === 'transports')).toEqual(['transports', 'internal', 'hybrid'])
-  })
-
-  it('builds a KiH event with version 3', () => {
-    const event = buildKeytrEvent({
-      credential,
-      encryptedBlob: 'dGVzdA==',
-      version: '3',
-    })
-
-    expect(event.tags.find(t => t[0] === 'v')?.[1]).toBe('3')
   })
 
   it('round-trips through build and parse', () => {
@@ -49,7 +38,7 @@ describe('nostr event', () => {
     expect(parsed.credentialId).toEqual(credentialId)
     expect(parsed.rpId).toBe('keytr.org')
     expect(parsed.encryptedBlob).toBe('dGVzdA==')
-    expect(parsed.version).toBe(1)
+    expect(parsed.version).toBe(KEYTR_VERSION)
     expect(parsed.algorithm).toBe('aes-256-gcm')
     expect(parsed.kdf).toBe('hkdf-sha256')
     expect(parsed.transports).toEqual(['internal', 'hybrid'])
@@ -77,18 +66,5 @@ describe('nostr event', () => {
       content: '',
       tags: [['d', credential.credentialIdBase64url]],
     })).toThrow('Missing "rp" tag')
-  })
-
-  it('detects PRF mode from v=1', () => {
-    const event = buildKeytrEvent({ credential, encryptedBlob: 'dGVzdA==' })
-    const parsed = parseKeytrEvent(event)
-    expect(parsed.mode).toBe('prf')
-  })
-
-  it('detects KiH mode from v=3', () => {
-    const event = buildKeytrEvent({ credential, encryptedBlob: 'dGVzdA==', version: '3' })
-    const parsed = parseKeytrEvent(event)
-    expect(parsed.mode).toBe('kih')
-    expect(parsed.version).toBe(3)
   })
 })

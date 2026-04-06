@@ -1,38 +1,18 @@
-import type { AuthenticateOptions, DiscoverOptions, DiscoverResult, UnifiedDiscoverResult } from '../types.js';
+import type { AuthenticateOptions, DiscoverOptions, DiscoverResult } from '../types.js';
 /**
- * Authenticate with an existing passkey and obtain the PRF output
- * for decrypting the nsec.
+ * Authenticate with an existing passkey and extract the encryption key
+ * from the userHandle for decrypting the nsec.
  *
- * @returns 32-byte PRF output for key derivation
+ * @returns 32-byte encryption key from userHandle
  */
 export declare function authenticatePasskey(options: AuthenticateOptions): Promise<Uint8Array>;
 /**
- * Discoverable passkey authentication — no prior pubkey or credential ID needed.
+ * Discoverable passkey authentication — no prior credential ID needed.
  *
- * Uses a two-step flow to work around Safari iOS 18+ not returning PRF
- * extension output during discoverable authentication (empty allowCredentials):
+ * Single-step flow: empty allowCredentials triggers the passkey picker,
+ * the authenticator returns the userHandle with the embedded encryption key.
  *
- *   Step 1 — Discovery (no PRF): empty allowCredentials, browser shows the
- *   passkey picker. Returns the credential ID (rawId) and pubkey (userHandle).
- *
- *   Step 2 — Targeted assertion WITH PRF: the discovered credentialId goes
- *   into allowCredentials so the browser can evaluate the PRF extension.
- *   This second assertion should be auto-approved since it targets the same
- *   credential that was just authenticated.
- *
- * @returns The recovered pubkey, PRF output, and credential ID
+ * @returns The encryption key and credential ID
  */
 export declare function discoverPasskey(options?: DiscoverOptions): Promise<DiscoverResult>;
-/**
- * Unified discoverable authentication — auto-detects PRF vs KiH mode.
- *
- * Step 1: Discovery assertion (no PRF, empty allowCredentials).
- *   - If userHandle is 33 bytes with 0x03 prefix → KiH mode. Done in 1 prompt.
- *   - If userHandle is 32 bytes → PRF mode. Needs step 2 for PRF output.
- *
- * Step 2 (PRF only): Targeted assertion with PRF extension to get key material.
- *
- * @returns Mode, key material, credential ID, and AAD version
- */
-export declare function unifiedDiscover(options?: DiscoverOptions): Promise<UnifiedDiscoverResult>;
 //# sourceMappingURL=authenticate.d.ts.map

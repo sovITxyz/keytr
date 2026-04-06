@@ -1,14 +1,10 @@
-import type { KeytrCredential, RegisterOptions } from '../types.js';
+import type { RegisterOptions, RegisterResult } from '../types.js';
 /**
- * Register a new passkey with PRF extension enabled.
+ * Register a new passkey with a random encryption key embedded in user.id.
  *
- * This creates a discoverable credential (resident key) on the user's
- * authenticator with PRF support for key derivation.
- *
- * @returns The credential metadata and initial PRF output for first encryption
+ * The 32-byte encryption key is embedded in user.id as [0x03 || key].
+ * Works with all authenticators including password manager extensions.
+ * Single biometric prompt — no follow-up assertion needed.
  */
-export declare function registerPasskey(options: RegisterOptions): Promise<{
-    credential: KeytrCredential;
-    prfOutput: Uint8Array;
-}>;
+export declare function registerPasskey(options: RegisterOptions): Promise<RegisterResult>;
 //# sourceMappingURL=register.d.ts.map

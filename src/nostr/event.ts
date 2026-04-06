@@ -1,13 +1,13 @@
 import { base64url } from '@scure/base'
-import { KEYTR_EVENT_KIND, KEYTR_VERSION, KEYTR_KIH_VERSION, type KeytrEventTemplate, type KeytrCredential, type KeytrMode } from '../types.js'
+import { KEYTR_EVENT_KIND, KEYTR_VERSION, type KeytrEventTemplate, type KeytrCredential } from '../types.js'
 import { KeytrError } from '../errors.js'
 
 interface BuildEventOptions {
   credential: KeytrCredential
   encryptedBlob: string
   clientName?: string
-  /** Version tag value. Defaults to '1' (PRF). Use '3' for KiH mode. */
-  version?: string
+  /** AAD version byte. Defaults to KEYTR_VERSION. Strategies may override. */
+  version?: number
 }
 
 /** Build an unsigned kind:31777 event template for a passkey-encrypted nsec */
@@ -19,7 +19,7 @@ export function buildKeytrEvent(options: BuildEventOptions): KeytrEventTemplate 
     ['rp', credential.rpId],
     ['algo', 'aes-256-gcm'],
     ['kdf', 'hkdf-sha256'],
-    ['v', options.version ?? '1'],
+    ['v', String(options.version ?? KEYTR_VERSION)],
   ]
 
   if (credential.transports.length > 0) {
@@ -48,8 +48,6 @@ export interface ParsedKeytrEvent {
   kdf: string
   transports: string[]
   clientName?: string
-  /** Detected encryption mode based on the v tag */
-  mode: KeytrMode
 }
 
 /** Parse a kind:31777 event to extract credential info and encrypted blob */
@@ -75,7 +73,7 @@ export function parseKeytrEvent(event: {
     throw new KeytrError('Missing "rp" tag')
   }
 
-  const version = parseInt(getTag('v') ?? '1', 10)
+  const version = parseInt(getTag('v') ?? String(KEYTR_VERSION), 10)
   const algorithm = getTag('algo') ?? 'aes-256-gcm'
   const kdf = getTag('kdf') ?? 'hkdf-sha256'
 
@@ -91,8 +89,6 @@ export function parseKeytrEvent(event: {
     throw new KeytrError('Invalid credential ID encoding in "d" tag')
   }
 
-  const mode: KeytrMode = version === KEYTR_KIH_VERSION ? 'kih' : 'prf'
-
   return {
     credentialIdBase64url,
     credentialId,
@@ -103,6 +99,5 @@ export function parseKeytrEvent(event: {
     kdf,
     transports,
     clientName,
-    mode,
   }
 }
