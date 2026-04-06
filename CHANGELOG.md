@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.6.2] - 2026-04-06
+
+### Fixed
+- **Single-credential registration** — `setup()` now pre-checks PRF support via `getClientCapabilities()` before creating any credential. On platforms that definitively report no PRF support (e.g. GrapheneOS), registration skips straight to KiH mode, avoiding the creation of an orphaned PRF credential followed by a second KiH credential. Previously, the PRF-first-with-KiH-fallback pattern could create two passkeys on the device when PRF failed after credential creation.
+
 ## [0.6.0] - 2026-04-01
 
 ### Added
