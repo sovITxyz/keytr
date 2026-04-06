@@ -3,6 +3,12 @@ import { randomBytes } from '@noble/hashes/utils.js'
 import { base64url } from '@scure/base'
 import { MODE_BYTE, USER_ID_SIZE } from '../../src/types.js'
 
+// Bypass cached native refs so test mocks on navigator.credentials take effect
+vi.mock('../../src/webauthn/natives.js', () => ({
+  nativeCreate: undefined,
+  nativeGet: undefined,
+}))
+
 // Stash originals for cleanup
 const originalNavigator = globalThis.navigator
 

@@ -5,6 +5,7 @@ import { BLOB_VERSION, KEYTR_VERSION, type EncryptOptions } from '../types.js'
 import { EncryptionError } from '../errors.js'
 import { deriveKey } from './kdf.js'
 import { serializeBlob } from './blob.js'
+import { safeZero } from './builtins.js'
 
 /**
  * Build the Additional Authenticated Data (AAD) for AES-GCM.
@@ -49,7 +50,7 @@ export function encryptNsec(options: EncryptOptions): string {
 
     return base64.encode(blob)
   } finally {
-    // Best-effort memory cleanup
-    key.fill(0)
+    // Best-effort memory cleanup (uses cached .fill to resist prototype pollution)
+    safeZero(key)
   }
 }

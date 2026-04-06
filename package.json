@@ -1,6 +1,6 @@
 {
   "name": "@sovit.xyz/keytr",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Passkey login for Nostr. Encrypt your nsec with a WebAuthn passkey, publish to relays, decrypt on any device. Implements NIP-K1.",
   "type": "module",
   "main": "dist/index.js",
@@ -54,10 +54,10 @@
   "homepage": "https://github.com/sovITxyz/keytr",
   "license": "AGPL-3.0-or-later",
   "dependencies": {
-    "@noble/ciphers": "^2.1.0",
-    "@noble/hashes": "^2.0.0",
-    "@scure/base": "^2.0.0",
-    "nostr-tools": "^2.12.0"
+    "@noble/ciphers": "2.1.1",
+    "@noble/hashes": "2.0.1",
+    "@scure/base": "2.0.0",
+    "nostr-tools": "2.23.3"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

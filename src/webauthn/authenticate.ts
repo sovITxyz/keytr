@@ -3,6 +3,7 @@ import { DEFAULT_RP_ID } from '../types.js'
 import { WebAuthnError } from '../errors.js'
 import { extractKey } from './kih.js'
 import { ensureBrowser } from './support.js'
+import { nativeGet } from './natives.js'
 
 /**
  * Authenticate with an existing passkey and extract the encryption key
@@ -37,9 +38,11 @@ export async function authenticatePasskey(
 
   const getOptions: CredentialRequestOptions = { publicKey: pubKeyOptions }
 
+  const get = nativeGet ?? navigator.credentials.get.bind(navigator.credentials)
+
   let assertion: PublicKeyCredential
   try {
-    const result = await navigator.credentials.get(getOptions)
+    const result = await get(getOptions)
     if (!result) throw new WebAuthnError('Authentication returned null')
     assertion = result as PublicKeyCredential
   } catch (err) {
@@ -88,9 +91,11 @@ export async function discoverPasskey(
   const discoveryOptions: CredentialRequestOptions = { publicKey: pubKeyOptions }
   if (options?.mediation) discoveryOptions.mediation = options.mediation
 
+  const get = nativeGet ?? navigator.credentials.get.bind(navigator.credentials)
+
   let assertion: PublicKeyCredential
   try {
-    const result = await navigator.credentials.get(discoveryOptions)
+    const result = await get(discoveryOptions)
     if (!result) throw new WebAuthnError('Discoverable authentication returned null')
     assertion = result as PublicKeyCredential
   } catch (err) {

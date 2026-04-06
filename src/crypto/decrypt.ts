@@ -5,6 +5,7 @@ import { DecryptionError } from '../errors.js'
 import { deriveKey } from './kdf.js'
 import { deserializeBlob } from './blob.js'
 import { buildAad } from './encrypt.js'
+import { safeZero } from './builtins.js'
 
 /**
  * Decrypt a base64-encoded encrypted nsec blob using the passkey's embedded key.
@@ -38,6 +39,6 @@ export function decryptNsec(options: DecryptOptions): Uint8Array {
     if (err instanceof DecryptionError) throw err
     throw new DecryptionError('Decryption failed - wrong passkey or corrupted data')
   } finally {
-    key.fill(0)
+    safeZero(key)
   }
 }

@@ -5,6 +5,7 @@ import { WebAuthnError } from '../errors.js';
 import { generateUserId, extractKey } from './kih.js';
 import { ensureBrowser } from './support.js';
 import { parseBackupFlags } from './flags.js';
+import { nativeCreate } from './natives.js';
 /**
  * Register a new passkey with a random encryption key embedded in user.id.
  *
@@ -48,7 +49,8 @@ export async function registerPasskey(options) {
     const createOptions = { publicKey: pubKeyOptions };
     let cred;
     try {
-        const result = await navigator.credentials.create(createOptions);
+        const create = nativeCreate ?? navigator.credentials.create.bind(navigator.credentials);
+        const result = await create(createOptions);
         if (!result)
             throw new WebAuthnError('Credential creation returned null');
         cred = result;
